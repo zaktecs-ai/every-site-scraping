@@ -77,6 +77,7 @@ SCHEMA: List[str] = [
     "h4_count",
     "word_count",             # words in visible text
     "character_count",        # characters in visible text
+    "rendering_type",         # server_rendered | client_rendered (JS shell) | empty
     # --- F. Links & elements (10) ---
     "internal_links",
     "external_links",
@@ -117,8 +118,8 @@ SCHEMA: List[str] = [
     "visible_text_preview",   # first ~500 chars of visible text
 ]
 
-# Ensures schema edits are caught: exactly 69 columns.
-assert len(SCHEMA) == 69, f"SCHEMA must be exactly 69 columns, got {len(SCHEMA)}"
+# Ensures schema edits are caught: exactly 70 columns.
+assert len(SCHEMA) == 70, f"SCHEMA must be exactly 70 columns, got {len(SCHEMA)}"
 _assert_no_dup = [c for c, n in Counter(SCHEMA).items() if n > 1]
 assert not _assert_no_dup, f"Duplicate column names: {_assert_no_dup}"
 
@@ -160,6 +161,7 @@ DICTIONARY: dict = {
     "h4_count": "Content | Number of <h4> elements.",
     "word_count": "Content | Total words in visible text.",
     "character_count": "Content | Total characters in visible text.",
+    "rendering_type": "Content | server_rendered, client_rendered (JS-rendered shell), or empty.",
     "internal_links": "Links | Count of links pointing to the same domain.",
     "external_links": "Links | Count of links pointing to another domain.",
     "total_links": "Links | Total <a href> links.",
@@ -205,6 +207,7 @@ STRIP_TAGS = {
     "meta", "link", "select", "textarea", "input", "option",
 }
 
+# Elements treated as block-level for the purpose of the tree walk.
 BLOCK_ELEMENTS = {
     "p", "div", "li", "h1", "h2", "h3", "h4", "h5", "h6",
     "blockquote", "pre", "td", "th", "dt", "dd",
@@ -213,6 +216,17 @@ BLOCK_ELEMENTS = {
     "table", "thead", "tbody", "tfoot", "tr", "ul", "ol", "dl",
     "caption", "summary", "address", "fieldset", "legend",
     "body", "html",
+}
+
+# Elements that are ALWAYS emitted as an atomic content unit, even if they
+# contain another block element inside (e.g. <h1>Code <div>…</div> Work</h1>).
+# These carry their own semantic text; descending into them would DROP that
+# text. This distinction fixes real-world data loss on Snowflake, IBM,
+# NetSolTech, and others whose headings contain nested markup.
+LEAF_CONTENT = {
+    "h1", "h2", "h3", "h4", "h5", "h6",
+    "p", "li", "pre", "blockquote", "td", "th", "dt", "dd",
+    "figcaption", "caption", "address", "legend", "summary",
 }
 
 _WS_RE = re.compile(r"\s+")
@@ -432,7 +446,14 @@ def _visible_blocks(soup: Tag) -> List[Tuple[str, str]]:
             if _is_hidden(child):
                 continue
             name = child.name
-            if name in BLOCK_ELEMENTS:
+            if name in LEAF_CONTENT:
+                # Always emit an atomic content unit's full text — never
+                # descend, so nested markup (e.g. a <span>/<div> inside an
+                # <h1>) is captured as part of the heading, not dropped.
+                text = _norm(_collect_text(child))
+                if text:
+                    out.append((name, text))
+            elif name in BLOCK_ELEMENTS:
                 if _has_block_descendant(child):
                     walk(child)
                 else:
@@ -440,9 +461,17 @@ def _visible_blocks(soup: Tag) -> List[Tuple[str, str]]:
                     if text:
                         out.append((name, text))
             else:
-                text = _norm(_collect_text(child))
-                if text:
-                    out.append((name, text))
+                # Unknown or custom element (e.g. a Web Component like
+                # <c4d-video-cta-container>). If it has child ELEMENTS whose
+                # text we have not yet walked, recurse into it; if it is a
+                # leaf with text of its own, emit that. Never throw the
+                # subtree away — that caused full-page data loss on IBM.
+                if any(isinstance(c, Tag) for c in getattr(child, "children", [])):
+                    walk(child)
+                else:
+                    text = _norm(_collect_text(child))
+                    if text:
+                        out.append((name, text))
 
     walk(root)
     return out
@@ -471,6 +500,7 @@ def _extract_content(soup: Tag, d: dict, html: str) -> None:
     full_text = "\n".join(text for _, text in blocks)
     d["word_count"] = str(len(full_text.split()))
     d["character_count"] = str(len(full_text))
+    d["rendering_type"] = _classify_rendering(blocks, html)
     d["visible_text_preview"] = full_text[:500]
 
     # Copyright line
@@ -511,6 +541,64 @@ def _has_block_descendant(node: Tag) -> bool:
     return False
 
 
+def _classify_rendering(blocks, html: str) -> str:
+    """Classify whether the page was server-rendered or is a JS-rendered shell.
+
+    Deterministic heuristic:
+      * No HTML at all -> "empty"
+      * No visible text blocks ->
+          - has JS-framework markers / scripts but no body text -> "client_rendered"
+          - truly empty body -> "empty"
+      * Very few words AND strong JS-shell evidence -> "client_rendered"
+      * Otherwise -> "server_rendered"
+
+    This makes a near-zero word count on a healthy fetch honest: it is a
+    client-side-rendered SPA whose content only appears after JavaScript runs,
+    not a scraper bug.
+    """
+    raw = html or ""
+    if not raw:
+        return "empty"
+
+    word_count = sum(len(x[1].split()) for x in blocks)
+    body_text = re.sub(r"<[^>]+>", " ", _extract_body_raw(raw))
+    body_text = re.sub(r"\s+", " ", body_text).strip()
+
+    js_marker = (
+        "__NEXT_DATA__" in raw
+        or "__NUXT__" in raw
+        or "data-reactroot" in raw.lower()
+        or re.search(r"\bid=[\"']root[\"']", raw) is not None
+        or re.search(r"\bid=[\"']app[\"']", raw) is not None
+        or re.search(r"\bid=[\"']__next[\"']", raw) is not None
+        or re.search(r"\bid=[\"']__nuxt[\"']", raw) is not None
+        or "appServerConfig" in raw                       # Spotify & similar
+        or "__spotify" in raw
+        or "data-react-id" in raw.lower()
+        or "ng-version" in raw.lower()                    # Angular marker
+        or "id=\"app-root\"" in raw
+    )
+    has_scripts = "<script" in raw.lower()
+
+    if not blocks:
+        # No visible text at all. Distinguish "JS shell" from "nothing here".
+        if js_marker or (has_scripts and not body_text):
+            return "client_rendered"
+        return "empty"
+
+    if word_count <= 2 and js_marker and not body_text:
+        return "client_rendered"
+
+    return "server_rendered"
+
+
+def _extract_body_raw(html: str) -> str:
+    m = re.search(r"<body[^>]*>(.*?)</body>", html, re.I | re.S)
+    if m:
+        return m.group(1)
+    return html
+
+
 def _is_hidden(node: Tag) -> bool:
     if node.get("hidden") is not None:
         return True
@@ -527,8 +615,18 @@ def _is_hidden(node: Tag) -> bool:
         if isinstance(cls, list):
             cls = " ".join(cls)
         cl = str(cls).lower()
-        for marker in ("hidden", "visually-hidden", "sr-only"):
-            if marker in cl:
+        # Split on WHITESPACE only — class names are whitespace-delimited
+        # tokens. This correctly treats "hidden", "visually-hidden", and
+        # "sr-only" as visibility classes while leaving unrelated classes
+        # alone, including:
+        #   * "overflow-hidden"  (a CSS overflow utility — does NOT hide)
+        #   * "[&_br]:hidden"    (a Tailwind arbitrary selector that hides a
+        #                         descendant <br>, NOT the element itself)
+        # Both of the above previously caused false "hidden" detection and
+        # dropped real content (Apple <h1>, Databricks <h1>, IBM headings).
+        tokens = {t for t in cl.split() if t}
+        for marker in ("hidden", "visually-hidden", "sr-only", "invisible"):
+            if marker in tokens:
                 return True
     return False
 
