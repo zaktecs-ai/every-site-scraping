@@ -1,171 +1,183 @@
-# stdout scrawler
+# Every-Site Structured Scraper
 
-Turn **any website into a CSV** of its visible text — no setup, no site-specific
-rules. Give it one URL or a hundred; it fetches each page, finds every visible
-piece of text (headings, paragraphs, list items, tables, quotes, code), and
-writes it all to a single CSV file that opens in Excel, Google Sheets, or any
-spreadsheet program.
+Extract **complete, structured information about any website** into a single
+CSV — one row per site, **69 fixed columns**, 100% deterministic (no
+randomness), evidence-backed, and structurally guaranteed.
 
-You do **not** need to know anything about programming to use it.
+Give it a list of URLs; it fetches each page and returns a professionally
+normalized row covering identity, Open Graph, Twitter cards, SEO, content,
+links, social profiles, contact details, organization data (JSON-LD), detected
+technology stack, and page weight — all in one flat table ready for Excel,
+Google Sheets, or a database.
 
 ---
 
-## What you get
+## Key guarantees (the "no mismatch" promise)
 
-A CSV with four columns:
+The extractor is built so a column can never overwrite, shift, or go missing:
 
-| Column | What it means |
+1. **Fixed schema** — every row has exactly the same 69 columns, in the same
+   order. There is no "extra" column on one row and a missing one on the next.
+2. **Strict CSV writer** — the row is serialized with
+   `csv.DictWriter(..., extrasaction="raise", restval="")`. If a row ever
+   contained a field outside the schema, the run would **raise an error**
+   rather than silently drop it. Missing fields are written as `""`, so nothing
+   shifts left or right.
+3. **All-values-are-strings** — tested; no `None`, no objects, no mixed types.
+4. **Deterministic** — no probabilistic guesses; lists (emails, phones,
+   JSON-LD types) are deduplicated **and sorted**, and technology detection is
+   always paired with `technology_evidence` so every claim is auditable.
+5. **Accurate, not padded** — if the site does not expose a phone or email,
+   the field stays empty. Empty is correct; garbage is not.
+
+---
+
+## Output: the 69 columns (data dictionary)
+
+Grouped by category. Every site's row reflects all of these.
+
+### A. Source & request
+| Column | Meaning |
 | --- | --- |
-| `url` | The page the text came from |
-| `block_type` | What kind of text it is (`heading`, `paragraph`, `list_item`, `table_cell`, …) |
-| `element_path` | The element's position in the page (a CSS-like path, handy for finding where the text lives) |
-| `text` | The visible text itself |
+| `url` | URL exactly as requested |
+| `final_url` | URL after redirects resolved |
+| `http_status` | Numeric status (200, 404…) |
+| `fetch_status` | `ok`, `http_error`, `timeout`, `ssl_error`, `connection_error`, `error` |
+| `fetch_error` | Plain-English failure reason (empty if ok) |
+| `page_title` | Text of `<title>` |
+| `domain` | Hostname, lowercase |
+| `site_name` | Best identity: og:site_name → title → domain brand |
+
+### B. Meta & Open Graph
+`meta_description`, `meta_keywords`, `og_title`, `og_description`, `og_type`,
+`og_image`, `og_url`, `og_site_name`, `og_locale`
+
+### C. Twitter cards
+`twitter_card`, `twitter_title`, `twitter_description`, `twitter_image`,
+`twitter_handle`
+
+### D. SEO & indexing
+`canonical_url`, `robots_meta`, `viewport`, `language`, `charset`, `favicon`,
+`generator`
+
+### E. Content structure
+`h1_text`, `h1_count`, `h2_count`, `h3_count`, `h4_count`, `word_count`,
+`character_count`
+
+### F. Links & elements
+`internal_links`, `external_links`, `total_links`, `external_domains`,
+`images_count`, `images_missing_alt`, `forms_count`, `iframes_count`,
+`scripts_count`, `styles_count`
+
+### G. Social & contact
+`facebook_url`, `linkedin_url`, `instagram_url`, `youtube_url`, `github_url`,
+`contact_emails` (` ; `-joined, deduped), `contact_phones` (` ; `-joined)
+
+### H. Organization (JSON-LD)
+`org_name`, `org_description`, `org_logo`, `org_url`, `org_founding_date`,
+`org_location`, `org_phone`, `jsonld_types`
+
+### I. Security, tech & weight
+`https`, `technology`, `technology_evidence`, `copyright_text`,
+`page_size_bytes`, `response_time_ms`
+
+### J. Content snapshot
+`headings_outline` (reading order), `visible_text_preview` (first ~500 chars)
+
+> The machine-readable schema (and per-column descriptions) lives in
+> `scraper.py` as `SCHEMA` and `DICTIONARY`. Run `python cli.py --schema` to
+> print the column list.
 
 ---
 
-## 1. Install (one time, ~1 minute)
-
-You need Python (3.8 or newer) installed. If you don't have it, download it from
-[python.org](https://www.python.org/downloads/) — during install, tick
-**"Add Python to PATH"**.
-
-Then open a terminal / command prompt and run:
+## Install (one time)
 
 ```bash
 pip install -r requirements.txt
 ```
 
-That's the only setup step.
+An 8.x+ or 9.x Python fork of nothing exotic is needed — just Python 3.8 or
+newer plus `requests` and `beautifulsoup4`/`lxml`.
 
 ---
 
-## 2. Run it
+## Run it
 
-### One website
-
-```bash
-python cli.py https://example.com
-```
-
-### Several websites at once
+### One / several sites
 
 ```bash
-python cli.py https://example.com https://openai.com https://stripe.com
+python cli.py https://www.postgresql.org
+python cli.py https://www.postgresql.org https://www.python.org -o out.csv
 ```
 
-### Read URLs from a file (best for long lists)
-
-Create a plain text file, one URL per line (lines starting with `#` are ignored):
-
-```
-# urls.txt
-https://example.com
-https://openai.com
-https://stripe.com
-```
-
-Then:
+### From a file (one URL per line, `#` ignored)
 
 ```bash
-python cli.py -f urls.txt -o results.csv
+python cli.py -f urls.txt -o out.csv
 ```
 
-### Choose the output file name
+### Print the schema
 
 ```bash
-python cli.py https://example.com -o my_results.csv
-```
-
-When it finishes it prints how many sites succeeded and where the CSV was written.
-By default the file is named `output.csv` in the same folder.
-
----
-
-## 3. What it does under the hood
-
-1. Downloads the HTML of each page, one page at a time.
-2. Follows normal redirects **and** JavaScript-style redirects (a
-   `<meta http-equiv="refresh">` tag).
-3. Retries transient failures (a busy server, a slowdown) a couple of times
-   before giving up on that site.
-4. Strips out non-visible content (scripts, styles, hidden elements, page
-   metadata).
-5. Walks the visible page and collects each block of text, in reading order.
-6. Removes exact duplicate blocks (very common on modern sites).
-7. Writes everything — every site, every block — to one CSV.
-
-If one site is down or blocked, the tool records the error and keeps going with
-the rest. It never crashes on a single bad URL.
-
----
-
-## 4. Project layout
-
-```
-every_site_scraping/
-├── cli.py              # the command you actually run
-├── multiscrape.py      # fetches pages and drives the scraper
-├── scraper.py          # the text-extraction engine
-├── test_scraper.py     # automated tests
-├── requirements.txt    # the packages to install
-├── TESTS.txt           # the 20+ tech/software sites used for the full test
-├── README.md           # this file
-└── .gitignore
+python cli.py --schema
 ```
 
 ---
 
-## 5. Run the tests
+## Structural integrity checks
 
 ```bash
 python -m unittest test_scraper -v
 ```
 
-You should see every test pass with `OK`.
+16 tests cover schema length/uniqueness, per-field presence, "all strings"
+verification, strict header==schema alignment, and end-to-end CSV round-trips
+against a local server.
 
-To re-run the full 20+ site test:
+The `data_quality.py` helper audits any produced CSV and reports the exact
+row, column, and value for any anomaly (wrong column count, None, duplicate
+header, unsorted lists):
 
 ```bash
-python cli.py -f TESTS.txt -o test_output.csv
+python data_quality.py out.csv
 ```
 
 ---
 
-## 6. Test plan (20+ real sites)
+## Tested against 26 real sites
 
-`TESTS.txt` lists 27 technology and software-house websites. The scraper was run
-against all of them to verify completeness and shake out bugs. Result: **26 of
-27 scraped cleanly** into 2,436 text blocks; the one failure (`npmjs.com`) is a
-server-side bot block, which the tool reports rather than crashing.
+`TESTS.txt` lists 27 technology/software sites. Result: **26/27 scraped** into
+clean 69-column rows (the one remaining → `npmjs.com` blocks automated
+traffic with HTTP 403, which is recorded in `fetch_status`/`fetch_error`, not
+a crash).
 
-Bugs found and fixed during this pass:
+During development, real data surfaced and fixed a genuine accuracy bug:
+phone detection initially matched digits inside scripts (Fibonacci numbers on
+Python.org, copyright years). The fix restricts phone/email scanning to
+**visible text only** and requires a real phone signature (`tel:` links, a
+leading `+`, or `(XXX) XXX-XXXX`), so no more garbage values.
 
-1. **Whitespace before punctuation** — `<a>` links rendered as `"about page ."`
-   with a stray space. Fixed by collecting text from the source DOM instead of
-   inserting synthetic separators.
-2. **Double-counted nested text** — `div > p` structures emitted parent *and*
-   child. Fixed with a container-vs-leaf model in the tree walker.
-3. **JS redirects ignored** — `ruby-lang.org` serves a one-line redirect page.
-   Fixed by following `<meta http-equiv="refresh">` tags (now returns 61 blocks).
-4. **Transient 5xx/timeouts** — `ubuntu.com` returned 503 mid-run. Fixed by
-   adding bounded retries with backoff (now returns 340 blocks).
+---
 
-Remaining failures are environmental (bot protection / throttled datacenter
-traffic), not scraper defects.
+## Project layout
 
-Re-run the full check at any time:
-
-```bash
-python cli.py -f TESTS.txt -o test_output.csv
+```
+every_site_scraping/
+├── cli.py              # command-line entry point
+├── multiscrape.py      # fetch + strict CSV orchestration
+├── scraper.py          # structured extractor + SCHEMA + DICTIONARY
+├── data_quality.py     # CSV integrity auditor
+├── test_scraper.py     # 16 automated tests
+├── requirements.txt    # dependencies (requests, beautifulsoup4, lxml)
+├── README.md           # this file
+└── TESTS.txt           # 27-site test list
 ```
 
 ---
 
-## 7. Tips
+## Tips
 
-- **A site shows few or no results**: some sites require JavaScript, logins, or
-  block automated tools. The scraper works on classic server-rendered HTML; for
-  JavaScript-only pages you'd need a browser-based tool (out of scope here).
-- **Too many duplicates?** They're removed by default. If you want to see
-  everything, including repeats, add `-d` (or `--keep-duplicates`).
-- **Slow or failing network?** Increase the timeout: `python cli.py URL -t 60`.
+- **JavaScript-heavy SPAs** render content client-side and may show sparse
+  results; server-rendered pages are fully covered.
+- **Bot protection** (403/429) is reported per-row, never crashes the run.
+- Increase timeout for slow sites: `python cli.py URL -t 40`.

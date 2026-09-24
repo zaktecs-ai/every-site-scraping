@@ -1,12 +1,21 @@
-"""Batch scraping engine for stdout scrawler.
+"""Batch orchestration for the Every-Site Structured Scraper.
 
-Turns a list of URLs into a single CSV of text blocks. Uses only `requests`
-to fetch pages and the local `scraper` module to extract text — no heavy
-dependencies, no per-site configuration.
+Fetches a list of URLs and writes ONE row per site into a CSV whose columns are
+fixed by `scraper.SCHEMA`. Structural integrity is guaranteed by Python's
+`csv.DictWriter`:
+
+  * `fieldnames=SCHEMA`     -> column order is locked to the canonical schema
+  * `extrasaction="raise"`  -> any unknown key in a row RAISES instead of being
+                                silently dropped (no silent data loss)
+  * `restval=""`            -> any missing key is written as "" (no shifting)
+
+Combined with `extract_site`, which returns a schema-complete dict, a row can
+never overwrite or misalign a column.
 """
 
 from __future__ import annotations
 
+import csv
 import re
 import sys
 import time
@@ -15,11 +24,10 @@ from typing import List, Optional
 
 import requests
 
-# Allow `python multiscrape.py` as well as import from cli.py.
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from scraper import extract_text, write_csv  # noqa: E402
+from scraper import SCHEMA, extract_site  # noqa: E402
 
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -32,14 +40,9 @@ REQUEST_HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-# Status codes we consider a successful fetch. Any others are recorded as
-# errors in the output rather than crashing the run.
-OK_STATUSES = {200, 201, 202, 204, 301, 302, 303, 307, 308}
-
-# Status codes that are worth retrying (transient problems, not real errors).
+OK_STATUSES = {200, 201, 202, 204}
 RETRY_STATUSES = {429, 500, 502, 503, 504}
 
-# A <meta http-equiv="refresh" content="0; url=..."> redirect inside the page.
 _META_REFRESH_RE = re.compile(
     r"<meta[^>]+http-equiv=[\"']?refresh[\"']?[^>]+content=[\"']"
     r"\s*\d+\s*;\s*url\s*=\s*[\"']?([^\"'>\s]+)",
@@ -57,41 +60,26 @@ def _normalize_url(url: str) -> str:
 
 
 def _resolve_meta_refresh(html: str, base_url: str) -> Optional[str]:
-    """Return the target URL of a <meta http-equiv=refresh> redirect, if any."""
     m = _META_REFRESH_RE.search(html)
     if not m:
         return None
     target = m.group(1).strip()
     if not target:
         return None
-    return _join_url(base_url, target)
-
-
-def _join_url(base: str, target: str) -> str:
     from urllib.parse import urljoin
-    return urljoin(base, target)
+    return urljoin(base_url, target)
 
 
-def fetch_page(
-    url: str,
-    timeout: int = 20,
-    user_agent: Optional[str] = None,
-    retries: int = 2,
-) -> dict:
-    """Fetch one page and return {url, status, ok, html, error, final_url,...}.
-
-    Performs up to `retries + 1` attempts, retrying on transient status codes
-    (429/5xx) and timeouts with a short backoff. It also follows client-side
-    redirects expressed as a <meta http-equiv="refresh"> tag (pages that
-    redirect via JavaScript without a real 3xx response).
-    """
+def fetch_page(url: str, timeout: int = 20, user_agent: Optional[str] = None,
+               retries: int = 2) -> dict:
+    """Fetch one page, returning a result dict suited for `extract_site`."""
     headers = dict(REQUEST_HEADERS)
     if user_agent:
         headers["User-Agent"] = user_agent
 
     url = _normalize_url(url)
-    result = {"url": url, "ok": False, "status": None, "html": "",
-              "error": "", "final_url": url, "attempts": 0}
+    result = dict(url=url, final_url=url, http_status=None, fetch_status="error",
+                  fetch_error="", html="", timing=0, headers={})
 
     session = requests.Session()
     session.headers.update(headers)
@@ -99,117 +87,136 @@ def fetch_page(
     attempt = 0
     while True:
         attempt += 1
-        result["attempts"] = attempt
+        t0 = time.monotonic()
         try:
-            resp = session.get(
-                url,
-                timeout=timeout,
-                allow_redirects=True,
-                verify=True,
-            )
-            result["status"] = resp.status_code
+            resp = session.get(url, timeout=timeout, allow_redirects=True, verify=True)
+            dt = int((time.monotonic() - t0) * 1000)
+            result["timing"] = dt
+            result["http_status"] = resp.status_code
             result["final_url"] = resp.url
+            result["headers"] = dict(resp.headers)
 
             if resp.status_code in OK_STATUSES:
                 resp.encoding = resp.encoding or "utf-8"
                 html = resp.text
-
-                # Follow meta-refresh redirects up to 3 hops.
+                # follow meta-refresh redirects (JS-style redirects)
                 for _ in range(3):
                     target = _resolve_meta_refresh(html, resp.url)
                     if not target:
                         break
                     resp = session.get(target, timeout=timeout, allow_redirects=True)
-                    result["status"] = resp.status_code
+                    result["http_status"] = resp.status_code
                     result["final_url"] = resp.url
+                    result["headers"] = dict(resp.headers)
                     if resp.status_code not in OK_STATUSES:
                         break
                     resp.encoding = resp.encoding or "utf-8"
                     html = resp.text
-
                 result["html"] = html
-                result["ok"] = True
+                result["fetch_status"] = "ok"
                 return result
 
             if resp.status_code in RETRY_STATUSES and attempt <= retries:
                 time.sleep(2 * attempt)
                 continue
-
-            result["error"] = f"HTTP {resp.status_code}"
+            result["fetch_status"] = "http_error"
+            result["fetch_error"] = f"HTTP {resp.status_code}"
+            result["html"] = resp.text[:200000]  # keep partial for debugging
             return result
 
         except requests.exceptions.Timeout:
             if attempt <= retries:
                 time.sleep(2 * attempt)
                 continue
-            result["error"] = "Timeout"
+            result["fetch_status"] = "timeout"
+            result["fetch_error"] = "Request timed out"
             return result
         except requests.exceptions.SSLError as e:
-            result["error"] = f"SSL error: {e}"
+            result["fetch_status"] = "ssl_error"
+            result["fetch_error"] = f"SSL error: {e}"
             return result
         except requests.exceptions.ConnectionError as e:
-            result["error"] = f"Connection error: {e}"
+            result["fetch_status"] = "connection_error"
+            result["fetch_error"] = f"Connection error: {e}"
             return result
         except requests.exceptions.TooManyRedirects:
-            result["error"] = "Too many redirects"
+            result["fetch_status"] = "error"
+            result["fetch_error"] = "Too many redirects"
             return result
         except requests.exceptions.RequestException as e:
-            result["error"] = f"Request error: {e}"
+            result["fetch_status"] = "error"
+            result["fetch_error"] = f"Request error: {e}"
             return result
         except Exception as e:  # noqa: BLE001 — one URL must never kill the run
-            result["error"] = f"Unexpected error: {e}"
+            result["fetch_status"] = "error"
+            result["fetch_error"] = f"Unexpected error: {e}"
             return result
 
 
-def run(
-    urls: List[str],
-    output: str = "output.csv",
-    timeout: int = 20,
-    user_agent: Optional[str] = None,
-    dedupe: bool = True,
-    delay: float = 0.0,
-) -> List[dict]:
-    """Scrape every URL and write one combined CSV. Returns per-URL results."""
-    results: List[dict] = []
-    blocks: List[dict] = []
-    session = requests.Session()
-    session.headers.update(REQUEST_HEADERS)
-    if user_agent:
-        session.headers["User-Agent"] = user_agent
+def row_from_fetch(fetch: dict) -> dict:
+    """Convert a fetch result into a schema-complete row."""
+    return extract_site(
+        fetch.get("html", ""),
+        url=fetch.get("url", ""),
+        http_status=fetch.get("http_status"),
+        fetch_status=fetch.get("fetch_status", "ok"),
+        fetch_error=fetch.get("fetch_error", ""),
+        final_url=fetch.get("final_url", ""),
+        response_time_ms=fetch.get("timing"),
+        headers=fetch.get("headers", {}),
+        page_size_bytes=len(fetch.get("html", "").encode("utf-8", errors="replace")) if fetch.get("html") else 0,
+    )
+
+
+def run(urls: List[str], output: str = "output.csv", timeout: int = 20,
+        user_agent: Optional[str] = None) -> dict:
+    """Scrape every URL into rows and write a strict CSV. Returns stats."""
+    rows: List[dict] = []
+    ok_count = 0
 
     for i, raw_url in enumerate(urls, 1):
         url = _normalize_url(raw_url)
-        print(f"[{i}/{len(urls)}] Scraping {url} ...", file=sys.stderr)
-
-        res = fetch_page(url, timeout=timeout, user_agent=user_agent)
-
-        if res["ok"] and res["html"]:
-            page_blocks = extract_text(
-                res["html"], url=res.get("final_url", url), dedupe=dedupe
-            )
-            blocks.extend(page_blocks)
-            res["block_count"] = len(page_blocks)
-            results.append(res)
-            print(f"    -> {len(page_blocks)} text blocks captured.",
-                  file=sys.stderr)
+        print(f"[{i}/{len(urls)}] {url}", file=sys.stderr)
+        fetch = fetch_page(url, timeout=timeout, user_agent=user_agent)
+        row = row_from_fetch(fetch)
+        rows.append(row)
+        if row["fetch_status"] == "ok":
+            ok_count += 1
+            print(f"    -> ok  {row['page_title'][:60]}  "
+                  f"({row['word_count']} words)", file=sys.stderr)
         else:
-            res["block_count"] = 0
-            results.append(res)
-            print(f"    -> FAILED: {res['error']}", file=sys.stderr)
+            print(f"    -> {row['fetch_status']}: {row['fetch_error']}",
+                  file=sys.stderr)
 
-        if delay > 0:
-            time.sleep(delay)
+    write_csv(rows, output)
+    return {"total": len(rows), "ok": ok_count, "columns": len(SCHEMA)}
 
-    write_csv(blocks, output)
-    total = len(blocks)
-    print(f"\nTotal text blocks extracted: {total}", file=sys.stderr)
-    return results
+
+def write_csv(rows: List[dict], path) -> str:
+    """Write rows with a strict DictWriter bound to the canonical schema."""
+    close = False
+    if isinstance(path, (str, Path)):
+        f = open(str(path), "w", newline="", encoding="utf-8-sig")
+        close = True
+    else:
+        f = path
+    try:
+        writer = csv.DictWriter(
+            f, fieldnames=SCHEMA, extrasaction="raise", restval=""
+        )
+        writer.writeheader()
+        for r in rows:
+            writer.writerow(r)
+    finally:
+        if close:
+            f.close()
+    return str(path)
 
 
 if __name__ == "__main__":
     import argparse
 
-    p = argparse.ArgumentParser(description="Scrape a list of URLs into CSV.")
+    p = argparse.ArgumentParser(description="Scrape sites into a structured CSV.")
     p.add_argument("urls", nargs="*")
     p.add_argument("-f", "--file")
     p.add_argument("-o", "--output", default="output.csv")
@@ -227,6 +234,7 @@ if __name__ == "__main__":
         p.print_help()
         raise SystemExit(2)
 
-    raise SystemExit(
-        0 if any(r["ok"] for r in run(urls, args.output, timeout=args.timeout)) else 1
-    )
+    stats = run(urls, args.output, timeout=args.timeout)
+    print(f"\nDone. {stats['ok']}/{stats['total']} sites ok. "
+          f"{stats['columns']} columns. Output: {args.output}", file=sys.stderr)
+    raise SystemExit(0 if stats["ok"] else 1)
