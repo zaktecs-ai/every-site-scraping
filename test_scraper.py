@@ -71,8 +71,8 @@ SAMPLE_HTML = """
 
 
 class TestSchema(unittest.TestCase):
-    def test_schema_has_69_columns(self):
-        self.assertEqual(len(SCHEMA), 69)
+    def test_schema_has_70_columns(self):
+        self.assertEqual(len(SCHEMA), 70)
 
     def test_schema_no_duplicates(self):
         self.assertEqual(len(SCHEMA), len(set(SCHEMA)))
@@ -154,6 +154,52 @@ class TestExtraction(unittest.TestCase):
             self.assertIsInstance(v, str)
 
 
+class TestRegressionFixes(unittest.TestCase):
+    """Lock in the visibility/tree-walk bugs found during the 58-site stress test."""
+
+    def test_overflow_hidden_is_not_treated_as_hidden(self):
+        # "overflow-hidden" is a CSS overflow utility, NOT a visibility class.
+        # It must not hide content (this was dropping Apple/IBM headings).
+        from scraper import _is_hidden
+        from bs4 import BeautifulSoup
+        tag = BeautifulSoup('<h1 class="overflow-hidden">Visible</h1>', "lxml").h1
+        self.assertFalse(_is_hidden(tag))
+
+    def test_tailwind_arbitrary_selector_is_not_hidden(self):
+        # "[&_br]:hidden" hides a descendant <br>, NOT the element itself.
+        from scraper import _is_hidden
+        from bs4 import BeautifulSoup
+        tag = BeautifulSoup(
+            '<h1 class="mb-2 [&_br]:hidden text-6">Visible</h1>', "lxml"
+        ).h1
+        self.assertFalse(_is_hidden(tag))
+
+    def test_real_visibility_classes_still_hidden(self):
+        from scraper import _is_hidden
+        from bs4 import BeautifulSoup
+        for cls in ("hidden", "visually-hidden", "sr-only", "invisible"):
+            tag = BeautifulSoup(f'<div class="{cls}">x</div>', "lxml").div
+            self.assertTrue(_is_hidden(tag), cls)
+
+    def test_heading_with_nested_block_is_not_dropped(self):
+        # <h1>Code <div>…</div> Work</h1> must yield "Code Work", not vanish.
+        html = "<body><h1>Code <div>x</div> Work</h1></body>"
+        d = extract_site(html, url="https://x.test")
+        self.assertEqual(d["h1_count"], "1")
+        self.assertIn("Code", d["h1_text"])
+
+    def test_custom_element_subtree_is_walked(self):
+        # Unknown/custom elements (Web Components) must be descended into,
+        # not dropped — this caused full-page data loss on IBM.
+        html = ("<body><c4d-video-cta-container>"
+                "<h1>Real Heading</h1><p>Body text here</p>"
+                "</c4d-video-cta-container></body>")
+        d = extract_site(html, url="https://x.test")
+        self.assertEqual(d["h1_count"], "1")
+        self.assertEqual(d["h1_text"], "Real Heading")
+        self.assertIn("Body text here", d["visible_text_preview"])
+
+
 class TestCSVIntegrity(unittest.TestCase):
     def test_header_equals_schema_and_rows_align(self):
         rows = [
@@ -208,7 +254,7 @@ class TestEndToEnd(unittest.TestCase):
             url = f"http://127.0.0.1:{self.port}/"
             stats = run([url], output=out)
             self.assertEqual(stats["ok"], 1)
-            self.assertEqual(stats["columns"], 69)
+            self.assertEqual(stats["columns"], 70)
             with open(out, encoding="utf-8-sig") as f:
                 rows = list(csv.reader(f))
             self.assertEqual(len(rows), 2)               # header + 1 row

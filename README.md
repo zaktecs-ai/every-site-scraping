@@ -32,7 +32,7 @@ The extractor is built so a column can never overwrite, shift, or go missing:
 
 ---
 
-## Output: the 69 columns (data dictionary)
+## Output: the 70 columns (data dictionary)
 
 Grouped by category. Every site's row reflects all of these.
 
@@ -62,7 +62,7 @@ Grouped by category. Every site's row reflects all of these.
 
 ### E. Content structure
 `h1_text`, `h1_count`, `h2_count`, `h3_count`, `h4_count`, `word_count`,
-`character_count`
+`character_count`, `rendering_type`
 
 ### F. Links & elements
 `internal_links`, `external_links`, `total_links`, `external_domains`,
@@ -144,18 +144,42 @@ python data_quality.py out.csv
 
 ---
 
-## Tested against 26 real sites
+## Stress-tested against 58 real sites
 
-`TESTS.txt` lists 27 technology/software sites. Result: **26/27 scraped** into
-clean 69-column rows (the one remaining → `npmjs.com` blocks automated
-traffic with HTTP 403, which is recorded in `fetch_status`/`fetch_error`, not
-a crash).
+A dedicated stress run (`stress_test.py` + `STRESS_URLS.txt`) exercised the
+scraper across **58 live sites** — Pakistani software houses (Systemsltd,
+NetSol, 10Pearls, Arbisoft, Folio3, VentureDive, Confiz, Cubix, Xavor,
+Techlogix, Contour, Afiniti, Gaditek, …) plus USA and worldwide giants
+(Microsoft, Apple, Adobe, Salesforce, Oracle, IBM, Intel, Nvidia, MongoDB,
+Snowflake, Databricks, Samsung, Shopify, Spotify, Uber, SAP, Siemens, …).
 
-During development, real data surfaced and fixed a genuine accuracy bug:
-phone detection initially matched digits inside scripts (Fibonacci numbers on
-Python.org, copyright years). The fix restricts phone/email scanning to
-**visible text only** and requires a real phone signature (`tel:` links, a
-leading `+`, or `(XXX) XXX-XXXX`), so no more garbage values.
+That run surfaced and fixed three **real data-loss bugs** (now locked in by
+regression tests):
+
+1. **`overflow-hidden` treated as hidden.** A CSS overflow utility was matched
+   by substring against `"hidden"`, so visible content (Apple's `<h1>`,
+   IBM's headings, Mongo's hero) was silently dropped. Fixed: class names are
+   now matched as whole whitespace-delimited tokens.
+2. **Tailwind `[&_br]:hidden` treated as hidden.** This arbitrary selector hides
+   a descendant `<br>`, not the element itself, yet it flagged the element as
+   hidden and dropped Databricks' `<h1>`. Fixed by the same tokenization.
+3. **Headings nested inside custom elements / block markup were dropped.**
+   `<h1>Code <div>…</div> Work</h1>` (Snowflake) and Web Components like
+   `<c4d-video-cta-container>` (IBM) caused whole subtrees to vanish. Fixed:
+   headings and other content units are now always emitted as atomic leaves,
+   and unknown/custom elements are descended into instead of discarded.
+
+Also added a `rendering_type` column (`server_rendered` / `client_rendered`)
+so a near-zero word count on a JavaScript-only SPA (Spotify, Palantir,
+Pinterest) is reported honestly rather than as a mysterious data loss.
+
+The earlier phone-recognition bug (matching Fibonacci digits / copyright years
+inside scripts) remains fixed: phone/email scanning is restricted to visible
+text with a real phone signature.
+
+Result of the final run: **47/58 fetched successfully** into clean rows; the
+remaining 11 are server-side blocks or timeouts (403/429/400/502 — bot
+protection, recorded in `fetch_status`/`fetch_error`, never a crash).
 
 ---
 
@@ -166,11 +190,13 @@ every_site_scraping/
 ├── cli.py              # command-line entry point
 ├── multiscrape.py      # fetch + strict CSV orchestration
 ├── scraper.py          # structured extractor + SCHEMA + DICTIONARY
+├── stress_test.py      # 58-site stress driver with per-site diagnostics
 ├── data_quality.py     # CSV integrity auditor
-├── test_scraper.py     # 16 automated tests
+├── test_scraper.py     # 21 automated tests (incl. regression locks)
 ├── requirements.txt    # dependencies (requests, beautifulsoup4, lxml)
 ├── README.md           # this file
-└── TESTS.txt           # 27-site test list
+├── TESTS.txt           # 27-site quick test list
+└── STRESS_URLS.txt     # 58-site stress list (PK + USA + worldwide)
 ```
 
 ---

@@ -1,0 +1,68 @@
+# ==========================================================
+# STRESS TEST — 58 sites
+# A. Pakistan software houses / tech companies
+# ==========================================================
+https://www.systemsltd.com
+https://www.netsoltech.com
+https://www.10pearls.com
+https://www.arbisoft.com
+https://www.folio3.com
+https://www.venturedive.com
+https://www.confiz.com
+https://www.cubix.co
+https://www.xavor.com
+https://www.techlogix.com
+https://www.contour-software.com
+https://www.afiniti.com
+https://www.cinnova.com
+https://www.nextbridge.com
+https://www.gaditek.com
+https://www.creativechaos.co
+https://www.ovextech.com
+https://eocean.io
+https://www.devsinc.com
+https://www.royalcyber.com
+# ==========================================================
+# B. USA tech giants
+# ==========================================================
+https://www.microsoft.com
+https://www.apple.com
+https://www.amazon.com
+https://about.meta.com
+https://www.adobe.com
+https://www.salesforce.com
+https://www.oracle.com
+https://www.ibm.com
+https://www.intel.com
+https://www.cisco.com
+https://www.nvidia.com
+https://www.amd.com
+https://vercel.com
+https://www.cloudflare.com
+https://stripe.com
+https://www.twilio.com
+https://slack.com
+https://www.mongodb.com
+https://www.snowflake.com
+https://www.databricks.com
+https://www.elastic.co
+https://www.docker.com
+https://www.hashicorp.com
+# ==========================================================
+# C. Worldwide / other regions
+# ==========================================================
+https://www.samsung.com
+https://www.alibaba.com
+https://www.tencent.com
+https://www.baidu.com
+https://www.tsmc.com
+https://www.sap.com
+https://www.siemens.com
+https://www.shopify.com
+https://www.spotify.com
+https://www.airbnb.com
+https://www.uber.com
+https://zoom.us
+https://www.palantir.com
+https://www.pinterest.com
+https://cloud.google.com
