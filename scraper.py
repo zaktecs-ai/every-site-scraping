@@ -262,14 +262,21 @@ BLOCK_ELEMENTS = {
 }
 
 # Elements that are ALWAYS emitted as an atomic content unit, even if they
-# contain another block element inside (e.g. <h1>Code <div>…</div> Work</h1>).
-# These carry their own semantic text; descending into them would DROP that
-# text. This distinction fixes real-world data loss on Snowflake, IBM,
-# NetSolTech, and others whose headings contain nested markup.
+# contain another block element inside.
+#
+# ONLY the headings qualify: a heading's entire visible text IS its content,
+# and headings never legitimately contain sub-blocks that should become
+# separate rows. For example <h1>Code <div>…</div> Work</h1> must be captured
+# whole ("Code … Work") rather than split — this fixed real data loss on
+# Snowflake, IBM and NetSolTech.
+#
+# Other content elements (li, td, dd, blockquote, pre, …) are NOT here on
+# purpose: a <li> or <td> may wrap headings/paragraphs that must be extracted
+# separately. They use the container-vs-leaf rule instead, so a <li> that
+# contains an <h1> descends and captures the heading (this fixed data loss on
+# python.org, whose homepage <h1> lives inside an <li class="slide">).
 LEAF_CONTENT = {
     "h1", "h2", "h3", "h4", "h5", "h6",
-    "p", "li", "pre", "blockquote", "td", "th", "dt", "dd",
-    "figcaption", "caption", "address", "legend", "summary",
 }
 
 _WS_RE = re.compile(r"\s+")
@@ -719,16 +726,24 @@ def _is_hidden(node: Tag) -> bool:
             cls = " ".join(cls)
         cl = str(cls).lower()
         # Split on WHITESPACE only — class names are whitespace-delimited
-        # tokens. This correctly treats "hidden", "visually-hidden", and
-        # "sr-only" as visibility classes while leaving unrelated classes
-        # alone, including:
-        #   * "overflow-hidden"  (a CSS overflow utility — does NOT hide)
-        #   * "[&_br]:hidden"    (a Tailwind arbitrary selector that hides a
-        #                         descendant <br>, NOT the element itself)
-        # Both of the above previously caused false "hidden" detection and
-        # dropped real content (Apple <h1>, Databricks <h1>, IBM headings).
+        # tokens. We treat ONLY genuinely-hidden utility classes as hidden:
+        #   * "hidden"    (Tailwind/BS: display:none — truly removed)
+        #   * "invisible" (Tailwind: visibility:hidden — truly removed)
+        #
+        # We deliberately DO NOT treat accessibility "screen-reader-only"
+        # utilities as hidden ("sr-only", "visually-hidden", "screen-reader-text"):
+        # these hide content VISUALLY but intentionally keep it in the DOM for
+        # assistive tech AND crawlers, and they are commonly placed on a page's
+        # real <h1> / headings (e.g. sitepoint.com's sr-only <h1>). SEO tools
+        # count them; a completeness-focused extractor must too — dropping them
+        # was real data loss.
+        #
+        # We also leave unrelated classes alone, including:
+        #   * "overflow-hidden" (a CSS overflow utility — does NOT hide)
+        #   * "[&_br]:hidden"   (a Tailwind arbitrary selector that hides a
+        #                        descendant <br>, NOT the element itself)
         tokens = {t for t in cl.split() if t}
-        for marker in ("hidden", "visually-hidden", "sr-only", "invisible"):
+        for marker in ("hidden", "invisible"):
             if marker in tokens:
                 return True
     return False

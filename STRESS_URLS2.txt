@@ -1,0 +1,67 @@
+# 60 small-to-medium websites across categories (round 3 stress test)
+# --- dev tools / indie SaaS ---
+https://fly.io
+https://railway.app
+https://render.com
+https://supabase.com
+https://planetscale.com
+https://neon.tech
+https://turso.tech
+https://www.prisma.io
+https://drizzle.team
+https://trpc.io
+# --- open-source projects / small orgs ---
+https://flask.palletsprojects.com
+https://fastapi.tiangolo.com
+https://www.sqlalchemy.org
+https://pydantic.dev
+https://httpx.readthedocs.io
+https://rich.readthedocs.io
+https://click.palletsprojects.com
+https://pytest.org
+https://mypy-lang.org
+https://www.uvicorn.org
+# --- frameworks / libraries ---
+https://vuejs.org
+https://svelte.dev
+https://kit.svelte.dev
+https://astro.build
+https://remix.run
+https://solidjs.com
+https://qwik.dev
+https://lit.dev
+https://preactjs.com
+https://emberjs.com
+# --- design / creative tools ---
+https://www.figma.com
+https://www.canva.com
+https://dribbble.com
+https://www.behance.net
+https://fontawesome.com
+https://www.awwwards.com
+https://coolors.co
+https://undraw.co
+https://fonts.google.com
+https://www.remove.bg
+# --- startups / mid-size product companies ---
+https://www.notion.so
+https://linear.app
+https://www.airtable.com
+https://www.framer.com
+https://www.webflow.com
+https://cal.com
+https://resend.com
+https://clerk.com
+https://www.retool.com
+https://retool.com
+# --- misc small business / niche ---
+https://www.smashingmagazine.com
+https://css-tricks.com
+https://www.nngroup.com
+https://alistapart.com
+https://www.sitepoint.com
+https://dev.to
+https://hashnode.com
+https://www.digitalocean.com
+https://www.linode.com
+https://www.hetzner.com

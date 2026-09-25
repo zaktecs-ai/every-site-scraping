@@ -40,8 +40,13 @@ REQUEST_HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-OK_STATUSES = {200, 201, 202, 204}
-RETRY_STATUSES = {429, 500, 502, 503, 504}
+# Only a real 200 delivers an HTML document. 202 "Accepted" and 204 "No
+# Content" are used by bot-defences (e.g. Cloudflare in front of dribbble.com)
+# to hand back an EMPTY body; treating those as success silently produced a
+# blank row. They are now reported honestly, and 202 is retried in case it is
+# a transient challenge.
+OK_STATUSES = {200}
+RETRY_STATUSES = {202, 429, 500, 502, 503, 504}
 
 _META_REFRESH_RE = re.compile(
     r"<meta[^>]+http-equiv=[\"']?refresh[\"']?[^>]+content=[\"']"
@@ -112,6 +117,15 @@ def fetch_page(url: str, timeout: int = 20, user_agent: Optional[str] = None,
                         break
                     resp.encoding = resp.encoding or "utf-8"
                     html = resp.text
+                # A 200 with a genuinely empty body is still not a usable page.
+                if not html.strip():
+                    if attempt <= retries:
+                        time.sleep(2 * attempt)
+                        continue
+                    result["fetch_status"] = "empty_response"
+                    result["fetch_error"] = "Server returned an empty body (likely a bot challenge)"
+                    result["html"] = ""
+                    return result
                 result["html"] = html
                 result["fetch_status"] = "ok"
                 return result

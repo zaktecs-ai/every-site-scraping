@@ -165,8 +165,9 @@ python -m unittest test_scraper -v
 ```
 
 16 tests cover schema length/uniqueness, per-field presence, "all strings"
-verification, strict header==schema alignment, and end-to-end CSV round-trips
-against a local server.
+verification, strict header==schema alignment, link-harvest correctness, the
+visibility/walker regression locks, and end-to-end CSV round-trips against a
+local server. (37 tests total.)
 
 The `data_quality.py` helper audits any produced CSV and reports the exact
 row, column, and value for any anomaly (wrong column count, None, duplicate
@@ -217,6 +218,42 @@ protection, recorded in `fetch_status`/`fetch_error`, never a crash).
 
 ---
 
+## Stress-tested against a further 60 small/medium sites
+
+A second round (`STRESS_URLS2.txt`) ran the scraper across **60 more small-to-
+medium sites** — indie SaaS & dev tools (Fly.io, Render, Supabase, PlanetScale,
+Neon, Prisma, Turso), open-source projects (Flask, FastAPI, SQLAlchemy,
+Pydantic, pytest, mypy), frameworks (Vue, Svelte, Astro, Remix, Solid, Qwik,
+Lit, Preact, Ember), design tools (Figma, Canva, Dribbble, Behance, Font
+Awesome, Coolors, Google Fonts), product startups (Notion, Linear, Airtable,
+Framer, Webflow, Cal, Resend, Clerk, Retool) and publishers (Smashing
+Magazine, CSS-Tricks, A List Apart, Sitepoint, dev.to, DigitalOcean, Linode).
+
+That round surfaced and fixed three more **real bugs** (all now regression-tested):
+
+1. **`sr-only` / `visually-hidden` were treated as hidden** — these
+   accessibility classes hide content *visually* but deliberately keep it in
+   the DOM for crawlers, and are commonly placed on a page's real `<h1>`
+   (e.g. sitepoint.com). Dropping them was data loss. Now kept.
+2. **A heading inside a `<li>`/`<td>` was swallowed.** python.org's homepage
+   `<h1>` lives inside `<li class="slide">`; because `li` was in the "atomic"
+   set, the whole list item was emitted and the five real `<h1>`s vanished.
+   Fix: **only headings** are atomic leaves; other elements use the
+   container-vs-leaf rule (so a `<li>` containing an `<h1>` descends and the
+   heading is captured — 5 h1s recovered on python.org).
+3. **HTTP 202 (and empty 200) reported as success.** dribbble.com's bot
+   defence returns `202 Accepted` with an **empty body**; the scraper marked it
+   "ok" and wrote a blank row. Now 202 is retried then reported honestly, and
+   an empty body becomes `fetch_status=empty_response` — never a false "ok".
+
+Result: **56/60 fetched** into clean rows (the rest are 403/502 bot-blocks,
+reported truthfully). Count↔list consistency: **0 mismatches** across all rows.
+
+**Unit tests: 37 passing** (link-harvest, visibility/walker regression locks,
+schema/integrity, end-to-end).
+
+---
+
 ## Project layout
 
 ```
@@ -230,7 +267,8 @@ every_site_scraping/
 ├── requirements.txt    # dependencies (requests, beautifulsoup4, lxml)
 ├── README.md           # this file
 ├── TESTS.txt           # 27-site quick test list
-└── STRESS_URLS.txt     # 58-site stress list (PK + USA + worldwide)
+├── STRESS_URLS.txt     # 58-site stress list (PK + USA + worldwide)
+└── STRESS_URLS2.txt    # 60-site stress list (small/medium sites)
 ```
 
 ---
