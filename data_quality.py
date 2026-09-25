@@ -22,11 +22,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from scraper import SCHEMA  # noqa: E402
+from scraper import SCHEMA, LIST_COLUMNS, LIST_DELIM, COUNT_LIST_PAIRS  # noqa: E402
 
-# Columns that hold sorted, deduped " ; "-joined lists. Order matters for
-# determinism, so the auditor checks they are sorted.
-_LIST_COLUMNS = {"contact_emails", "contact_phones", "jsonld_types"}
+# Columns that hold sorted, deduped newline-joined lists (single source of
+# truth lives in scraper.py). The auditor checks they are sorted + deduped.
+_LIST_COLUMNS = set(LIST_COLUMNS)
 
 
 def audit(path: str) -> int:
@@ -64,21 +64,37 @@ def audit(path: str) -> int:
             for c, val in enumerate(row):
                 if val is None:
                     problems.append(f"row {lineno}, column {c}: None value")
-            # list determinism checks
+            # list determinism checks (newline-delimited, sorted + deduped)
             for col in _LIST_COLUMNS:
                 if col not in idx:
                     continue
                 cell = row[idx[col]]
                 if cell:
-                    parts = [p.strip() for p in cell.split(";")]
+                    parts = [p for p in cell.split(LIST_DELIM) if p]
                     if parts != sorted(parts):
                         problems.append(
-                            f"row {lineno}: {col} not sorted: {cell[:60]}"
+                            f"row {lineno}: {col} not sorted"
                         )
                     if len(parts) != len(set(parts)):
                         problems.append(
-                            f"row {lineno}: {col} has duplicates: {cell[:60]}"
+                            f"row {lineno}: {col} has duplicates"
                         )
+            # count == list-length consistency (self-verifying accuracy)
+            for count_col, list_col in COUNT_LIST_PAIRS.items():
+                if count_col not in idx or list_col not in idx:
+                    continue
+                try:
+                    declared = int(row[idx[count_col]] or "0")
+                except ValueError:
+                    problems.append(f"row {lineno}: {count_col} not an integer")
+                    continue
+                cell = row[idx[list_col]]
+                actual = len([p for p in cell.split(LIST_DELIM) if p]) if cell else 0
+                if declared != actual:
+                    problems.append(
+                        f"row {lineno}: {count_col}={declared} but "
+                        f"{list_col} has {actual} items"
+                    )
 
     if problems:
         print(f"FAIL: {len(problems)} problem(s) in {path}")

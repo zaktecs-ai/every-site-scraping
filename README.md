@@ -1,14 +1,31 @@
 # Every-Site Structured Scraper
 
 Extract **complete, structured information about any website** into a single
-CSV — one row per site, **69 fixed columns**, 100% deterministic (no
+CSV — one row per site, **90 fixed columns**, 100% deterministic (no
 randomness), evidence-backed, and structurally guaranteed.
 
 Give it a list of URLs; it fetches each page and returns a professionally
-normalized row covering identity, Open Graph, Twitter cards, SEO, content,
-links, social profiles, contact details, organization data (JSON-LD), detected
-technology stack, and page weight — all in one flat table ready for Excel,
-Google Sheets, or a database.
+normalized row covering identity, Open Graph, Twitter cards, SEO, content, the
+**actual links and URLs** (internal, external, images, documents, media,
+scripts, styles, feeds, nav, social — every URL resolved to absolute), social
+profiles, contact details, organization data (JSON-LD), detected technology
+stack, and page weight — all in one flat table ready for Excel, Google Sheets,
+or a database.
+
+### Multi-value cells: one clean, parseable convention
+Every list-valued column (any `*_list`, `*_urls`, `*_links`, `*_feeds`,
+`contact_emails`, etc.) is a **newline-separated** list — deduplicated and
+sorted. This is the one convention across the whole file:
+- **Human-readable**: Excel / Google Sheets render each item on its own line
+  inside the cell.
+- **Python-easy**: `df[col].str.split("\n")` (or `cell.split("\n")`) gives you
+  the list back — perfect for separating everything out later.
+- **100% unambiguous**: a URL/email can contain a comma or semicolon but never
+  a newline, so the split is always safe.
+
+For every paired count+list column (e.g. `internal_links` ↔
+`internal_links_list`), the **count is guaranteed to equal the list length** —
+the CSV is self-verifying.
 
 ---
 
@@ -16,7 +33,7 @@ Google Sheets, or a database.
 
 The extractor is built so a column can never overwrite, shift, or go missing:
 
-1. **Fixed schema** — every row has exactly the same 69 columns, in the same
+1. **Fixed schema** — every row has exactly the same 90 columns, in the same
    order. There is no "extra" column on one row and a missing one on the next.
 2. **Strict CSV writer** — the row is serialized with
    `csv.DictWriter(..., extrasaction="raise", restval="")`. If a row ever
@@ -32,7 +49,7 @@ The extractor is built so a column can never overwrite, shift, or go missing:
 
 ---
 
-## Output: the 70 columns (data dictionary)
+## Output: the 90 columns (data dictionary)
 
 Grouped by category. Every site's row reflects all of these.
 
@@ -64,14 +81,31 @@ Grouped by category. Every site's row reflects all of these.
 `h1_text`, `h1_count`, `h2_count`, `h3_count`, `h4_count`, `word_count`,
 `character_count`, `rendering_type`
 
-### F. Links & elements
-`internal_links`, `external_links`, `total_links`, `external_domains`,
-`images_count`, `images_missing_alt`, `forms_count`, `iframes_count`,
-`scripts_count`, `styles_count`
+### F. Links, URLs & assets — counts + actual lists (newline-separated)
+Every list here holds **real, absolute URLs** (relative paths resolved against
+the final URL), deduplicated and sorted. Paired count == list length.
+
+| Count column | List column | Contents |
+| --- | --- | --- |
+| `internal_links` | `internal_links_list` | Same-domain link URLs |
+| `external_links` | `external_links_list` | Other-domain link URLs |
+| `total_links` | — | Unique internal + external count |
+| `external_domains` | `external_domains_list` | Unique external hostnames |
+| `all_urls_count` | `all_urls` | **Every** unique URL on the page (links + assets) |
+| `image_urls_count` | `image_urls` | `<img>`, `srcset`, lazy, `og:image` URLs |
+| `document_links_count` | `document_links` | pdf/doc/xls/ppt/zip/csv/… file URLs |
+| `media_urls_count` | `media_urls` | video/audio/embed URLs (incl. YouTube/Vimeo) |
+
+Plus (list-only or count-only): `script_urls`, `stylesheet_urls`, `iframe_urls`,
+`rss_feeds`, `hreflang_urls`, `nav_links` (primary navigation), and the element
+counts `images_count`, `images_missing_alt`, `iframes_count`, `scripts_count`,
+`styles_count`, `forms_count`.
 
 ### G. Social & contact
-`facebook_url`, `linkedin_url`, `instagram_url`, `youtube_url`, `github_url`,
-`contact_emails` (` ; `-joined, deduped), `contact_phones` (` ; `-joined)
+`social_links` (ALL social profile URLs, newline list), `facebook_url`,
+`linkedin_url`, `instagram_url`, `youtube_url`, `github_url` (first of each),
+`mailto_links`, `tel_links`, `contact_emails` (visible text **+** `mailto:`,
+deduped), `contact_phones` (visible text **+** `tel:`, deduped).
 
 ### H. Organization (JSON-LD)
 `org_name`, `org_description`, `org_logo`, `org_url`, `org_founding_date`,
@@ -192,7 +226,7 @@ every_site_scraping/
 ├── scraper.py          # structured extractor + SCHEMA + DICTIONARY
 ├── stress_test.py      # 58-site stress driver with per-site diagnostics
 ├── data_quality.py     # CSV integrity auditor
-├── test_scraper.py     # 21 automated tests (incl. regression locks)
+├── test_scraper.py     # 34 automated tests (incl. link-harvest + regression locks)
 ├── requirements.txt    # dependencies (requests, beautifulsoup4, lxml)
 ├── README.md           # this file
 ├── TESTS.txt           # 27-site quick test list
