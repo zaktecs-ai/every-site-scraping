@@ -27,12 +27,12 @@ import json
 import re
 from collections import Counter
 from typing import Iterable, List, Optional, Tuple
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urldefrag, urlparse
 
 from bs4 import BeautifulSoup, Tag
 
 # ---------------------------------------------------------------------------
-# CANONICAL SCHEMA  (69 columns — the single source of truth)
+# CANONICAL SCHEMA  (90 columns — the single source of truth)
 # ---------------------------------------------------------------------------
 
 SCHEMA: List[str] = [
@@ -78,25 +78,48 @@ SCHEMA: List[str] = [
     "word_count",             # words in visible text
     "character_count",        # characters in visible text
     "rendering_type",         # server_rendered | client_rendered (JS shell) | empty
-    # --- F. Links & elements (10) ---
-    "internal_links",
-    "external_links",
-    "total_links",
-    "external_domains",       # count of UNIQUE external hostnames
-    "images_count",
-    "images_missing_alt",
-    "forms_count",
-    "iframes_count",
-    "scripts_count",
-    "styles_count",
-    # --- G. Social & contact (7) ---
+    # --- F. Links, URLs & assets (27) ---
+    # Every *_list / *_urls / *_links / *_feeds cell is a NEWLINE-separated,
+    # deduped, sorted list of ABSOLUTE URLs. In Python:  value.split("\n").
+    # For paired columns the count ALWAYS equals its list length.
+    "internal_links",         # unique count == len(internal_links_list)
+    "internal_links_list",    # same-domain link URLs (absolute)
+    "external_links",         # unique count == len(external_links_list)
+    "external_links_list",    # other-domain link URLs (absolute)
+    "total_links",            # unique internal+external URL count
+    "external_domains",       # unique count == len(external_domains_list)
+    "external_domains_list",  # unique external hostnames
+    "all_urls_count",         # == len(all_urls)
+    "all_urls",               # every unique absolute URL referenced anywhere
+    "image_urls_count",       # == len(image_urls)
+    "image_urls",             # <img> / srcset / lazy image URLs (absolute)
+    "images_count",           # number of <img> elements (may exceed unique URLs)
+    "images_missing_alt",     # <img> without alt
+    "document_links_count",   # == len(document_links)
+    "document_links",         # pdf/doc/xls/ppt/zip/csv/... file URLs
+    "media_urls_count",       # == len(media_urls)
+    "media_urls",             # video/audio/embed URLs (incl. youtube/vimeo)
+    "iframe_urls",            # <iframe src> URLs
+    "iframes_count",          # number of <iframe> elements
+    "script_urls",            # external <script src> URLs
+    "scripts_count",          # number of <script> elements
+    "stylesheet_urls",        # <link rel=stylesheet> URLs
+    "styles_count",           # number of stylesheet links
+    "rss_feeds",              # RSS/Atom feed URLs
+    "hreflang_urls",          # alternate-language URLs (hreflang)
+    "nav_links",              # links inside <nav> (primary navigation)
+    "forms_count",            # number of <form> elements
+    # --- G. Social & contact (10) ---
+    "social_links",           # ALL social profile URLs (superset)
     "facebook_url",
     "linkedin_url",
     "instagram_url",
     "youtube_url",
     "github_url",
-    "contact_emails",         # deduped, " ; "-joined
-    "contact_phones",         # deduped, " ; "-joined
+    "mailto_links",           # mailto: targets (absolute emails)
+    "tel_links",              # tel: targets
+    "contact_emails",         # visible-text ∪ mailto, deduped, newline
+    "contact_phones",         # visible-text ∪ tel, deduped, newline
     # --- H. Organization / structured data (8) ---
     "org_name",
     "org_description",
@@ -118,8 +141,8 @@ SCHEMA: List[str] = [
     "visible_text_preview",   # first ~500 chars of visible text
 ]
 
-# Ensures schema edits are caught: exactly 70 columns.
-assert len(SCHEMA) == 70, f"SCHEMA must be exactly 70 columns, got {len(SCHEMA)}"
+# Ensures schema edits are caught: exactly 90 columns.
+assert len(SCHEMA) == 90, f"SCHEMA must be exactly 90 columns, got {len(SCHEMA)}"
 _assert_no_dup = [c for c, n in Counter(SCHEMA).items() if n > 1]
 assert not _assert_no_dup, f"Duplicate column names: {_assert_no_dup}"
 
@@ -162,23 +185,43 @@ DICTIONARY: dict = {
     "word_count": "Content | Total words in visible text.",
     "character_count": "Content | Total characters in visible text.",
     "rendering_type": "Content | server_rendered, client_rendered (JS-rendered shell), or empty.",
-    "internal_links": "Links | Count of links pointing to the same domain.",
-    "external_links": "Links | Count of links pointing to another domain.",
-    "total_links": "Links | Total <a href> links.",
-    "external_domains": "Links | Count of UNIQUE external hostnames linked.",
-    "images_count": "Elements | Number of <img> elements.",
-    "images_missing_alt": "Elements | Number of <img> without an alt attribute.",
+    "internal_links": "Links | Count of UNIQUE same-domain link URLs (== internal_links_list length).",
+    "internal_links_list": "Links | Newline-separated absolute same-domain link URLs.",
+    "external_links": "Links | Count of UNIQUE other-domain link URLs (== external_links_list length).",
+    "external_links_list": "Links | Newline-separated absolute other-domain link URLs.",
+    "total_links": "Links | Count of unique internal+external link URLs.",
+    "external_domains": "Links | Count of UNIQUE external hostnames (== external_domains_list length).",
+    "external_domains_list": "Links | Newline-separated unique external hostnames.",
+    "all_urls_count": "Links | Count of every unique absolute URL referenced (== all_urls length).",
+    "all_urls": "Links | Newline-separated every unique absolute URL on the page (links + assets).",
+    "image_urls_count": "Assets | Count of unique image URLs (== image_urls length).",
+    "image_urls": "Assets | Newline-separated absolute image URLs (<img>, srcset, lazy).",
+    "images_count": "Assets | Number of <img> elements (may exceed unique image URLs).",
+    "images_missing_alt": "Assets | Number of <img> without an alt attribute.",
+    "document_links_count": "Assets | Count of document links (== document_links length).",
+    "document_links": "Assets | Newline-separated document URLs (pdf/doc/xls/ppt/zip/csv/...).",
+    "media_urls_count": "Assets | Count of media URLs (== media_urls length).",
+    "media_urls": "Assets | Newline-separated video/audio/embed URLs (incl. youtube/vimeo).",
+    "iframe_urls": "Assets | Newline-separated <iframe src> URLs.",
+    "iframes_count": "Assets | Number of <iframe> elements.",
+    "script_urls": "Assets | Newline-separated external <script src> URLs.",
+    "scripts_count": "Assets | Number of <script> elements.",
+    "stylesheet_urls": "Assets | Newline-separated <link rel=stylesheet> URLs.",
+    "styles_count": "Assets | Number of stylesheet <link> elements.",
+    "rss_feeds": "Assets | Newline-separated RSS/Atom feed URLs.",
+    "hreflang_urls": "Links | Newline-separated alternate-language URLs (hreflang).",
+    "nav_links": "Links | Newline-separated links found inside <nav> (primary navigation).",
     "forms_count": "Elements | Number of <form> elements.",
-    "iframes_count": "Elements | Number of <iframe> elements.",
-    "scripts_count": "Elements | Number of <script> elements.",
-    "styles_count": "Elements | Number of <link rel=stylesheet> elements.",
-    "facebook_url": "Social | Facebook profile/page URL, if linked.",
-    "linkedin_url": "Social | LinkedIn profile/company URL, if linked.",
-    "instagram_url": "Social | Instagram profile URL, if linked.",
-    "youtube_url": "Social | YouTube channel URL, if linked.",
-    "github_url": "Social | GitHub profile/org URL, if linked.",
-    "contact_emails": "Contact | All visible email addresses, deduped (' ; '-joined).",
-    "contact_phones": "Contact | All visible phone numbers, deduped (' ; '-joined).",
+    "social_links": "Social | Newline-separated ALL social profile URLs found (superset).",
+    "facebook_url": "Social | First Facebook profile/page URL, if linked.",
+    "linkedin_url": "Social | First LinkedIn profile/company URL, if linked.",
+    "instagram_url": "Social | First Instagram profile URL, if linked.",
+    "youtube_url": "Social | First YouTube channel URL, if linked.",
+    "github_url": "Social | First GitHub profile/org URL, if linked.",
+    "mailto_links": "Contact | Newline-separated mailto: target addresses.",
+    "tel_links": "Contact | Newline-separated tel: target numbers.",
+    "contact_emails": "Contact | All emails (visible text + mailto), deduped, newline-separated.",
+    "contact_phones": "Contact | All phones (visible text + tel), deduped, newline-separated.",
     "org_name": "Organization | Organization name (JSON-LD, fallback site_name).",
     "org_description": "Organization | Organization description (JSON-LD).",
     "org_logo": "Organization | Organization logo URL (JSON-LD or og:image).",
@@ -238,9 +281,69 @@ _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 #   2. a leading international "+" with a plausible digit count, or
 #   3. a parenthesized area code (XXX) followed by digits.
 _TEL_HREF_RE = re.compile(r"^tel:", re.I)
+_MAILTO_HREF_RE = re.compile(r"^mailto:", re.I)
 _INTL_PHONE_RE = re.compile(r"\+[0-9][0-9\s\-\.\(\)]{6,18}[0-9]")
 _US_STYLE_PHONE_RE = re.compile(r"\(?\d{3}\)?[\s\-\.]\d{3}[\s\-\.]\d{4}")
 _COPYRIGHT_RE = re.compile(r"(\u00a9|&copy;|\(c\)|Copyright|All rights reserved)[^\n]{0,120}", re.I)
+
+# --- Multi-value output convention -----------------------------------------
+# A single, documented delimiter for ALL list-valued columns so the CSV is both
+# human-readable (Excel/Sheets show stacked lines) and trivially machine-parsed
+# (value.split("\n")). Newline is used because a URL/email/phone can contain a
+# comma or semicolon but never a newline — so splitting is 100% unambiguous.
+LIST_DELIM = "\n"
+
+# Every column whose value is a newline-separated list. Single source of truth
+# used by the writer, the data-quality auditor, and the tests.
+LIST_COLUMNS = {
+    "internal_links_list", "external_links_list", "external_domains_list",
+    "all_urls", "image_urls", "document_links", "media_urls", "iframe_urls",
+    "script_urls", "stylesheet_urls", "rss_feeds", "hreflang_urls",
+    "nav_links", "social_links", "mailto_links", "tel_links",
+    "contact_emails", "contact_phones", "jsonld_types",
+}
+
+# Paired (count_column -> list_column). The count MUST equal the list length,
+# which makes the CSV self-verifying (audited by data_quality.py + tests).
+COUNT_LIST_PAIRS = {
+    "internal_links": "internal_links_list",
+    "external_links": "external_links_list",
+    "external_domains": "external_domains_list",
+    "all_urls_count": "all_urls",
+    "image_urls_count": "image_urls",
+    "document_links_count": "document_links",
+    "media_urls_count": "media_urls",
+}
+
+# File extensions that mark a "document" link.
+_DOC_EXTS = (
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+    ".csv", ".tsv", ".zip", ".rar", ".7z", ".gz", ".tar",
+    ".rtf", ".odt", ".ods", ".odp", ".epub",
+)
+_MEDIA_EXTS = (
+    ".mp4", ".webm", ".ogg", ".ogv", ".mov", ".avi", ".mkv", ".m4v",
+    ".mp3", ".wav", ".flac", ".aac", ".m4a", ".oga",
+)
+# Hosts that indicate a media embed even without a file extension.
+_MEDIA_HOSTS = ("youtube.com", "youtu.be", "vimeo.com", "dailymotion.com",
+                "wistia.com", "soundcloud.com", "spotify.com")
+
+# Social hosts -> canonical column (individual "first match" columns).
+_SOCIAL_HOSTS = {
+    "facebook.com": "facebook_url",
+    "linkedin.com": "linkedin_url",
+    "instagram.com": "instagram_url",
+    "youtube.com": "youtube_url",
+    "youtu.be": "youtube_url",
+    "github.com": "github_url",
+    "twitter.com": None, "x.com": None, "t.me": None, "tiktok.com": None,
+    "pinterest.com": None, "medium.com": None, "threads.net": None,
+    "wa.me": None, "whatsapp.com": None, "discord.gg": None, "discord.com": None,
+}
+
+# Junk URL schemes we never store in URL lists.
+_JUNK_SCHEMES = ("data:", "blob:", "javascript:", "about:", "vbscript:")
 
 
 # ---------------------------------------------------------------------------
@@ -289,10 +392,10 @@ def extract_site(
     if soup is None:
         return d
 
+    base_url = final_url or url
     _extract_head(soup, d, html, headers or {})
     _extract_content(soup, d, html)
-    _extract_links(soup, d, parsed)
-    _extract_social(soup, d, html)
+    _extract_links(soup, d, parsed, base_url)  # links, URLs, assets, social, contacts
     _extract_structured_data(soup, d)
     _extract_technology(soup, d, html, headers or {})
     return d
@@ -636,106 +739,259 @@ def _norm(s: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Links
+# Links, URLs & assets — the full harvester
 # ---------------------------------------------------------------------------
 
-def _extract_links(soup: Tag, d: dict, base) -> None:
+def _abs_url(base_url: str, href: str) -> Optional[str]:
+    """Resolve `href` to an absolute http(s) URL, or None for junk/non-web.
+
+    * Skips data:, blob:, javascript:, about:, vbscript:, mailto:, tel:.
+    * Skips pure fragment (#...) links.
+    * Resolves relative/protocol-relative URLs against base_url.
+    * Strips the #fragment (so #a and #b don't create false-unique URLs).
+    """
+    if not href:
+        return None
+    h = href.strip()
+    if not h or h == "#":
+        return None
+    low = h.lower()
+    if low.startswith(_JUNK_SCHEMES) or low.startswith(("mailto:", "tel:")):
+        return None
+    if h.startswith("#"):
+        return None
+    try:
+        absu = urljoin(base_url, h)
+        absu = urldefrag(absu)[0]
+    except Exception:
+        return None
+    p = urlparse(absu)
+    if p.scheme not in ("http", "https") or not p.netloc:
+        return None
+    return absu
+
+
+def _join(values) -> str:
+    """Deterministic, deduped, newline-joined list cell."""
+    return LIST_DELIM.join(sorted({v for v in values if v}))
+
+
+def _extract_links(soup: Tag, d: dict, base, base_url: str) -> None:
     base_domain = (base.hostname or "").lower()
-    internal = 0
-    external = 0
-    ext_domains = set()
+
+    internal, external, ext_domains = set(), set(), set()
+    all_urls, doc_urls, media_urls = set(), set(), set()
+    image_urls, script_urls, style_urls = set(), set(), set()
+    iframe_urls, feeds, hreflang, nav_urls, social = (set() for _ in range(5))
+    mailto, tel = set(), set()
+    social_first = {c: "" for c in
+                    ("facebook_url", "linkedin_url", "instagram_url",
+                     "youtube_url", "github_url")}
+
+    def _host(u: str) -> str:
+        return (urlparse(u).hostname or "").lower()
+
+    def classify(absu: str) -> None:
+        all_urls.add(absu)
+        host = _host(absu)
+        path = (urlparse(absu).path or "").lower()
+        if path.endswith(_DOC_EXTS):
+            doc_urls.add(absu)
+        if path.endswith(_MEDIA_EXTS) or any(
+            host == m or host.endswith("." + m) for m in _MEDIA_HOSTS
+        ):
+            media_urls.add(absu)
+        if host and base_domain and host != base_domain and not host.endswith("." + base_domain):
+            external.add(absu)
+            ext_domains.add(host)
+        else:
+            internal.add(absu)
+        for shost, col in _SOCIAL_HOSTS.items():
+            if host == shost or host.endswith("." + shost):
+                social.add(absu)
+                if col and not social_first[col]:
+                    social_first[col] = absu
+                break
+
+    # --- <a href> : links, mailto, tel ---
     for a in soup.find_all("a"):
         href = (a.get("href") or "").strip()
-        if not href or href.startswith(("javascript:", "mailto:", "tel:", "#")):
+        if not href:
             continue
-        p = urlparse(href)
-        host = (p.hostname or "").lower()
-        if not host:
-            internal += 1  # relative / same-site link
-        elif host == base_domain or host.endswith("." + base_domain):
-            internal += 1
-        else:
-            external += 1
-            ext_domains.add(host)
-    d["internal_links"] = str(internal)
-    d["external_links"] = str(external)
-    d["total_links"] = str(internal + external)
-    d["external_domains"] = str(len(ext_domains))
+        low = href.lower()
+        if low.startswith("mailto:"):
+            addr = href[7:].split("?")[0].strip()
+            if addr:
+                mailto.add(addr)
+            continue
+        if low.startswith("tel:"):
+            num = href[4:].split("?")[0].strip()
+            if num:
+                tel.add(num)
+            continue
+        absu = _abs_url(base_url, href)
+        if absu:
+            classify(absu)
 
+    # --- nav links (primary navigation) ---
+    for nav in soup.find_all("nav"):
+        for a in nav.find_all("a", href=True):
+            absu = _abs_url(base_url, a.get("href", ""))
+            if absu:
+                nav_urls.add(absu)
+
+    # --- images (<img> src / lazy attrs / srcset) ---
+    for img in soup.find_all("img"):
+        for attr in ("src", "data-src", "data-lazy-src", "data-original", "data-srcset"):
+            v = (img.get(attr) or "").strip()
+            if not v:
+                continue
+            for piece in (v.split(",") if "srcset" in attr else [v]):
+                cand = piece.strip().split(" ")[0].strip()
+                absu = _abs_url(base_url, cand)
+                if absu:
+                    image_urls.add(absu)
+                    all_urls.add(absu)
+        srcset = (img.get("srcset") or "").strip()
+        for piece in srcset.split(","):
+            cand = piece.strip().split(" ")[0].strip()
+            absu = _abs_url(base_url, cand)
+            if absu:
+                image_urls.add(absu)
+                all_urls.add(absu)
+
+    # --- <picture>/<video>/<audio> <source> ---
+    for src in soup.find_all("source"):
+        raw = (src.get("src") or src.get("srcset") or "").strip()
+        cand = raw.split(",")[0].strip().split(" ")[0].strip() if raw else ""
+        absu = _abs_url(base_url, cand) if cand else None
+        if not absu:
+            continue
+        all_urls.add(absu)
+        parent = src.find_parent(["video", "audio", "picture"])
+        pth = (urlparse(absu).path or "").lower()
+        if (parent is not None and parent.name in ("video", "audio")) or pth.endswith(_MEDIA_EXTS):
+            media_urls.add(absu)
+        else:
+            image_urls.add(absu)
+
+    # --- <video>/<audio> direct src ---
+    for tag in soup.find_all(["video", "audio"]):
+        v = (tag.get("src") or "").strip()
+        absu = _abs_url(base_url, v) if v else None
+        if absu:
+            media_urls.add(absu)
+            all_urls.add(absu)
+
+    # --- external scripts ---
+    for s in soup.find_all("script"):
+        v = (s.get("src") or "").strip()
+        absu = _abs_url(base_url, v) if v else None
+        if absu:
+            script_urls.add(absu)
+            all_urls.add(absu)
+
+    # --- <link>: stylesheets, feeds, hreflang alternates ---
+    for link in soup.find_all("link"):
+        rels = link.get("rel") or []
+        if isinstance(rels, str):
+            rels = [rels]
+        rels = {r.lower() for r in rels}
+        href = (link.get("href") or "").strip()
+        absu = _abs_url(base_url, href) if href else None
+        if not absu:
+            continue
+        typ = (link.get("type") or "").lower()
+        if "stylesheet" in rels:
+            style_urls.add(absu)
+            all_urls.add(absu)
+        if "alternate" in rels and ("rss" in typ or "atom" in typ or "xml" in typ and "feed" in href.lower()):
+            feeds.add(absu)
+            all_urls.add(absu)
+        if link.get("hreflang"):
+            hreflang.add(absu)
+            all_urls.add(absu)
+
+    # --- iframes (embeds; youtube/vimeo also count as media) ---
+    for f in soup.find_all("iframe"):
+        v = (f.get("src") or f.get("data-src") or "").strip()
+        absu = _abs_url(base_url, v) if v else None
+        if absu:
+            iframe_urls.add(absu)
+            all_urls.add(absu)
+            host = _host(absu)
+            if any(host == m or host.endswith("." + m) for m in _MEDIA_HOSTS):
+                media_urls.add(absu)
+
+    # --- og:image + favicon (already resolved earlier) ---
+    og_img = _abs_url(base_url, d.get("og_image", "")) if d.get("og_image") else None
+    if og_img:
+        image_urls.add(og_img)
+        all_urls.add(og_img)
+    fav = _abs_url(base_url, d.get("favicon", "")) if d.get("favicon") else None
+    if fav:
+        all_urls.add(fav)
+
+    # --- write counts + lists (counts ALWAYS == list length for paired cols) ---
+    d["internal_links"] = str(len(internal))
+    d["internal_links_list"] = _join(internal)
+    d["external_links"] = str(len(external))
+    d["external_links_list"] = _join(external)
+    d["total_links"] = str(len(internal | external))
+    d["external_domains"] = str(len(ext_domains))
+    d["external_domains_list"] = _join(ext_domains)
+    d["all_urls_count"] = str(len(all_urls))
+    d["all_urls"] = _join(all_urls)
+    d["image_urls_count"] = str(len(image_urls))
+    d["image_urls"] = _join(image_urls)
     d["images_count"] = str(len(soup.find_all("img")))
     d["images_missing_alt"] = str(sum(
         1 for img in soup.find_all("img") if not (img.get("alt") or "").strip()
     ))
-    d["forms_count"] = str(len(soup.find_all("form")))
+    d["document_links_count"] = str(len(doc_urls))
+    d["document_links"] = _join(doc_urls)
+    d["media_urls_count"] = str(len(media_urls))
+    d["media_urls"] = _join(media_urls)
+    d["iframe_urls"] = _join(iframe_urls)
     d["iframes_count"] = str(len(soup.find_all("iframe")))
-    # scripts/styles counted on the raw HTML so stripped subtrees don't undercount
+    d["script_urls"] = _join(script_urls)
     d["scripts_count"] = str(len(soup.find_all("script")))
+    d["stylesheet_urls"] = _join(style_urls)
     d["styles_count"] = str(len(
         [l for l in soup.find_all("link") if "stylesheet" in (l.get("rel") or [])]
     ))
+    d["rss_feeds"] = _join(feeds)
+    d["hreflang_urls"] = _join(hreflang)
+    d["nav_links"] = _join(nav_urls)
+    d["forms_count"] = str(len(soup.find_all("form")))
 
-    emails = sorted(set(_EMAIL_RE.findall(_visible_text(soup))))
-    d["contact_emails"] = " ; ".join(emails)
+    d["social_links"] = _join(social)
+    for col, val in social_first.items():
+        d[col] = val
+    d["mailto_links"] = _join(mailto)
+    d["tel_links"] = _join(tel)
 
-    # Phones: ONLY from visible text, and ONLY matches with a real signature.
+    # --- contacts: visible text UNION mailto/tel (catch icon/button contacts) ---
     visible = _visible_text(soup)
+    emails = set(_EMAIL_RE.findall(visible))
+    for m in mailto:
+        emails.update(_EMAIL_RE.findall(m))
+    d["contact_emails"] = _join(emails)
+
     phones = set()
-    # 1. explicit tel: links (very high confidence — these ARE phone numbers)
-    for a in soup.find_all("a", href=True):
-        href = a.get("href", "")
-        if _TEL_HREF_RE.match(href.strip()):
-            cleaned = re.sub(r"[^\d+]", "", href[4:])
-            if len(re.sub(r"\D", "", cleaned)) >= 7:
-                phones.add(cleaned)
-    # 2. international format in visible text
+    for t in tel:
+        cleaned = re.sub(r"[^\d+]", "", t)
+        if len(re.sub(r"\D", "", cleaned)) >= 7:
+            phones.add(cleaned)
     for m in _INTL_PHONE_RE.finditer(visible):
         candidate = _norm(m.group(0))
         if 7 <= len(re.sub(r"\D", "", candidate)) <= 15:
             phones.add(candidate)
-    # 3. US-style (XXX) XXX-XXXX in visible text
     for m in _US_STYLE_PHONE_RE.finditer(visible):
         candidate = _norm(m.group(0))
         if 10 <= len(re.sub(r"\D", "", candidate)) <= 11:
             phones.add(candidate)
-    d["contact_phones"] = " ; ".join(sorted(phones))
-
-
-# ---------------------------------------------------------------------------
-# Social URLs
-# ---------------------------------------------------------------------------
-
-_SOCIAL_PATTERNS = {
-    "facebook_url": ("facebook.com", None),
-    "linkedin_url": ("linkedin.com", None),
-    "instagram_url": ("instagram.com", None),
-    "youtube_url": ("youtube.com", "youtu.be"),
-    "github_url": ("github.com", None),
-}
-
-
-def _extract_social(soup: Tag, d: dict, html: str) -> None:
-    candidates: List[str] = []
-    for a in soup.find_all("a"):
-        href = (a.get("href") or "").strip()
-        if href.startswith("http"):
-            candidates.append(href)
-    for meta in soup.find_all("meta"):
-        content = (meta.get("content") or "").strip()
-        if content.startswith("http") and any(
-            k in content.lower() for k in ("facebook", "linkedin", "instagram", "youtube", "github")
-        ):
-            candidates.append(content)
-
-    found = {k: "" for k in _SOCIAL_PATTERNS}
-    for url in candidates:
-        host = (urlparse(url).hostname or "").lower()
-        for col, (m1, m2) in _SOCIAL_PATTERNS.items():
-            if found[col]:
-                continue
-            if host == m1 or host.endswith("." + m1) or (m2 and (host == m2 or host.endswith("." + m2))):
-                found[col] = url
-    for col, val in found.items():
-        d[col] = val
+    d["contact_phones"] = _join(phones)
 
 
 # ---------------------------------------------------------------------------
