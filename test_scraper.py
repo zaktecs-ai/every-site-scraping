@@ -177,9 +177,34 @@ class TestRegressionFixes(unittest.TestCase):
     def test_real_visibility_classes_still_hidden(self):
         from scraper import _is_hidden
         from bs4 import BeautifulSoup
-        for cls in ("hidden", "visually-hidden", "sr-only", "invisible"):
+        for cls in ("hidden", "invisible"):
             tag = BeautifulSoup(f'<div class="{cls}">x</div>', "lxml").div
             self.assertTrue(_is_hidden(tag), cls)
+
+    def test_accessibility_classes_are_kept(self):
+        # sr-only / visually-hidden hide content VISUALLY but keep it for
+        # crawlers; a completeness-focused extractor must keep them (this was
+        # data loss on sitepoint.com's sr-only <h1>).
+        from scraper import _is_hidden
+        from bs4 import BeautifulSoup
+        for cls in ("sr-only", "visually-hidden", "screen-reader-text"):
+            tag = BeautifulSoup(f'<h1 class="{cls}">Real</h1>', "lxml").h1
+            self.assertFalse(_is_hidden(tag), cls)
+
+    def test_sr_only_heading_is_extracted(self):
+        html = '<body><h1 class="sr-only">SitePoint Heading</h1><p>x</p></body>'
+        d = extract_site(html, url="https://x.test")
+        self.assertEqual(d["h1_count"], "1")
+        self.assertEqual(d["h1_text"], "SitePoint Heading")
+
+    def test_heading_inside_list_item_is_extracted(self):
+        # python.org's <h1> lives inside <li class="slide">; the <li> must
+        # descend so the heading is captured separately, not swallowed.
+        html = ("<body><ul><li><h1>Slide Heading</h1>"
+                "<p>body text</p></li></ul></body>")
+        d = extract_site(html, url="https://x.test")
+        self.assertEqual(d["h1_count"], "1")
+        self.assertEqual(d["h1_text"], "Slide Heading")
 
     def test_heading_with_nested_block_is_not_dropped(self):
         # <h1>Code <div>…</div> Work</h1> must yield "Code Work", not vanish.
