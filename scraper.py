@@ -986,11 +986,18 @@ def _extract_links(soup: Tag, d: dict, base, base_url: str) -> None:
     d["mailto_links"] = _join(mailto)
     d["tel_links"] = _join(tel)
 
-    # --- contacts: visible text UNION mailto/tel (catch icon/button contacts) ---
+    # --- contacts: visible text UNION mailto/tel UNION JSON-LD ---
+    # JSON-LD (schema.org Organization/LocalBusiness) frequently carries the
+    # canonical contact email/telephone, even when the visible page only shows
+    # a form. Missing it was real data loss on contact-focused sites
+    # (e.g. caviar.pk, whose email lives only in JSON-LD).
     visible = _visible_text(soup)
+    ld_emails, ld_phones = _jsonld_contacts(soup)
+
     emails = set(_EMAIL_RE.findall(visible))
     for m in mailto:
         emails.update(_EMAIL_RE.findall(m))
+    emails.update(ld_emails)
     d["contact_emails"] = _join(emails)
 
     phones = set()
@@ -1006,12 +1013,55 @@ def _extract_links(soup: Tag, d: dict, base, base_url: str) -> None:
         candidate = _norm(m.group(0))
         if 10 <= len(re.sub(r"\D", "", candidate)) <= 11:
             phones.add(candidate)
+    phones.update(ld_phones)
     d["contact_phones"] = _join(phones)
 
 
 # ---------------------------------------------------------------------------
 # JSON-LD structured data
 # ---------------------------------------------------------------------------
+
+def _jsonld_contacts(soup: Tag) -> Tuple[set, set]:
+    """Recursively pull email/telephone values out of any JSON-LD block.
+
+    Handles nested objects/arrays (Organization -> address -> ...), which a
+    shallow scan misses. Emails are validated with the shared regex; phones
+    are kept only when they look like real numbers (>=7 digits) and are
+    normalised the same way as tel: links.
+    """
+    emails: set = set()
+    phones: set = set()
+
+    def walk(obj) -> None:
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if k == "email" and isinstance(v, str):
+                    for e in _EMAIL_RE.findall(v.replace("mailto:", "")):
+                        emails.add(e)
+                elif k in ("telephone", "phone") and isinstance(v, str):
+                    cleaned = _norm(v)
+                    if len(re.sub(r"\D", "", cleaned)) >= 7:
+                        phones.add(cleaned)
+                walk(v)
+        elif isinstance(obj, list):
+            for x in obj:
+                walk(x)
+
+    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        raw = script.get_text("", strip=False)
+        if not raw.strip():
+            continue
+        data = None
+        for candidate in (raw, re.sub(r"^\s*<!--|-->\s*$", "", raw.strip())):
+            try:
+                data = json.loads(candidate)
+                break
+            except (ValueError, TypeError):
+                continue
+        if data is not None:
+            walk(data)
+    return emails, phones
+
 
 def _extract_structured_data(soup: Tag, d: dict) -> None:
     types = set()

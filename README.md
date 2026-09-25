@@ -164,14 +164,14 @@ python cli.py --schema
 python -m unittest test_scraper -v
 ```
 
-16 tests cover schema length/uniqueness, per-field presence, "all strings"
+39 tests cover schema length/uniqueness, per-field presence, "all strings"
 verification, strict header==schema alignment, link-harvest correctness, the
 visibility/walker regression locks, and end-to-end CSV round-trips against a
-local server. (37 tests total.)
+local server.
 
 The `data_quality.py` helper audits any produced CSV and reports the exact
 row, column, and value for any anomaly (wrong column count, None, duplicate
-header, unsorted lists):
+header, unsorted lists, count≠list-length):
 
 ```bash
 python data_quality.py out.csv
@@ -179,78 +179,64 @@ python data_quality.py out.csv
 
 ---
 
-## Stress-tested against 58 real sites
+## Validation history (real-world bug hunts)
 
-A dedicated stress run (`stress_test.py` + `STRESS_URLS.txt`) exercised the
-scraper across **58 live sites** — Pakistani software houses (Systemsltd,
-NetSol, 10Pearls, Arbisoft, Folio3, VentureDive, Confiz, Cubix, Xavor,
-Techlogix, Contour, Afiniti, Gaditek, …) plus USA and worldwide giants
-(Microsoft, Apple, Adobe, Salesforce, Oracle, IBM, Intel, Nvidia, MongoDB,
-Snowflake, Databricks, Samsung, Shopify, Spotify, Uber, SAP, Siemens, …).
+The scraper has been hardened across three live test rounds totalling **180+
+real websites**, each one followed by a deep analysis pass that found and fixed
+genuine bugs. (The website lists themselves are not shipped in this repo.)
 
-That run surfaced and fixed three **real data-loss bugs** (now locked in by
-regression tests):
+### Round 1 — 27 tech/software sites
+Baseline: generic extraction worked across MongoDB, Python.org, Apache,
+WordPress, FreeBSD, LLVM, WebKit, etc.
 
-1. **`overflow-hidden` treated as hidden.** A CSS overflow utility was matched
-   by substring against `"hidden"`, so visible content (Apple's `<h1>`,
-   IBM's headings, Mongo's hero) was silently dropped. Fixed: class names are
-   now matched as whole whitespace-delimited tokens.
-2. **Tailwind `[&_br]:hidden` treated as hidden.** This arbitrary selector hides
-   a descendant `<br>`, not the element itself, yet it flagged the element as
-   hidden and dropped Databricks' `<h1>`. Fixed by the same tokenization.
-3. **Headings nested inside custom elements / block markup were dropped.**
+### Round 2 — 58 sites (PK software houses + global giants)
+Surfaced and fixed **three real data-loss bugs**:
+
+1. **`overflow-hidden` treated as hidden** — a CSS overflow utility was
+   substring-matched against `"hidden"`, silently dropping visible content
+   (Apple's `<h1>`, IBM's headings, Mongo's hero). Fixed: class names are
+   matched as whole whitespace-delimited tokens.
+2. **Tailwind `[&_br]:hidden` treated as hidden** — this selector hides a
+   descendant `<br>`, not the element, yet flagged Databricks' `<h1>` as
+   hidden. Fixed by the same tokenisation.
+3. **Headings inside custom elements / block markup dropped** —
    `<h1>Code <div>…</div> Work</h1>` (Snowflake) and Web Components like
-   `<c4d-video-cta-container>` (IBM) caused whole subtrees to vanish. Fixed:
-   headings and other content units are now always emitted as atomic leaves,
-   and unknown/custom elements are descended into instead of discarded.
+   `<c4d-video-cta-container>` (IBM) made whole subtrees vanish. Fixed:
+   headings are always emitted as atomic leaves, and unknown/custom elements
+   are descended into instead of discarded.
 
-Also added a `rendering_type` column (`server_rendered` / `client_rendered`)
-so a near-zero word count on a JavaScript-only SPA (Spotify, Palantir,
-Pinterest) is reported honestly rather than as a mysterious data loss.
+Also added `rendering_type` (`server_rendered` / `client_rendered`) so a
+near-zero word count on a JavaScript-only SPA is reported honestly.
 
-The earlier phone-recognition bug (matching Fibonacci digits / copyright years
-inside scripts) remains fixed: phone/email scanning is restricted to visible
-text with a real phone signature.
+### Round 3 — 60 small/medium sites (indie SaaS, open-source, design, startups)
+Surfaced and fixed **three more real bugs**:
 
-Result of the final run: **47/58 fetched successfully** into clean rows; the
-remaining 11 are server-side blocks or timeouts (403/429/400/502 — bot
-protection, recorded in `fetch_status`/`fetch_error`, never a crash).
+1. **`sr-only` / `visually-hidden` treated as hidden** — these accessibility
+   classes hide content *visually* but deliberately keep it in the DOM for
+   crawlers, and often sit on a page's real `<h1>` (e.g. sitepoint.com).
+   Dropping them was data loss. Now kept (only `hidden` / `invisible` hide).
+2. **A heading inside a `<li>`/`<td>` was swallowed** — python.org's homepage
+   `<h1>` lives inside `<li class="slide">`; the whole list item was emitted
+   and its five `<h1>`s vanished. Fix: **only headings** are atomic leaves;
+   everything else uses the container-vs-leaf rule (5 h1s recovered).
+3. **HTTP 202 / empty-body reported as success** — dribbble.com's bot defence
+   returns `202 Accepted` with an empty body; the scraper wrote a blank row and
+   called it "ok". Now 202 is retried then reported honestly, and an empty body
+   becomes `fetch_status=empty_response`.
 
----
+### Round 4 — 65 small software houses, service businesses & gov portals
+(Pakistan & India software houses, municipal/government portals, dental &
+medical clinics, restaurants, gyms, business directories.) Surfaced and fixed:
 
-## Stress-tested against a further 60 small/medium sites
+1. **Contacts that live only in JSON-LD were missed** — business/local pages
+   frequently publish their canonical email/telephone inside schema.org
+   structured data rather than visible text (e.g. caviar.pk). Added a
+   **recursive** JSON-LD contact scan, now folded into `contact_emails` /
+   `contact_phones` alongside visible text, `mailto:` and `tel:` links.
 
-A second round (`STRESS_URLS2.txt`) ran the scraper across **60 more small-to-
-medium sites** — indie SaaS & dev tools (Fly.io, Render, Supabase, PlanetScale,
-Neon, Prisma, Turso), open-source projects (Flask, FastAPI, SQLAlchemy,
-Pydantic, pytest, mypy), frameworks (Vue, Svelte, Astro, Remix, Solid, Qwik,
-Lit, Preact, Ember), design tools (Figma, Canva, Dribbble, Behance, Font
-Awesome, Coolors, Google Fonts), product startups (Notion, Linear, Airtable,
-Framer, Webflow, Cal, Resend, Clerk, Retool) and publishers (Smashing
-Magazine, CSS-Tricks, A List Apart, Sitepoint, dev.to, DigitalOcean, Linode).
-
-That round surfaced and fixed three more **real bugs** (all now regression-tested):
-
-1. **`sr-only` / `visually-hidden` were treated as hidden** — these
-   accessibility classes hide content *visually* but deliberately keep it in
-   the DOM for crawlers, and are commonly placed on a page's real `<h1>`
-   (e.g. sitepoint.com). Dropping them was data loss. Now kept.
-2. **A heading inside a `<li>`/`<td>` was swallowed.** python.org's homepage
-   `<h1>` lives inside `<li class="slide">`; because `li` was in the "atomic"
-   set, the whole list item was emitted and the five real `<h1>`s vanished.
-   Fix: **only headings** are atomic leaves; other elements use the
-   container-vs-leaf rule (so a `<li>` containing an `<h1>` descends and the
-   heading is captured — 5 h1s recovered on python.org).
-3. **HTTP 202 (and empty 200) reported as success.** dribbble.com's bot
-   defence returns `202 Accepted` with an **empty body**; the scraper marked it
-   "ok" and wrote a blank row. Now 202 is retried then reported honestly, and
-   an empty body becomes `fetch_status=empty_response` — never a false "ok".
-
-Result: **56/60 fetched** into clean rows (the rest are 403/502 bot-blocks,
-reported truthfully). Count↔list consistency: **0 mismatches** across all rows.
-
-**Unit tests: 37 passing** (link-harvest, visibility/walker regression locks,
-schema/integrity, end-to-end).
+Count↔list consistency was **0 mismatches** across every round, and every
+non-200 (403/429/500/502/timeout) is reported truthfully in
+`fetch_status`/`fetch_error` — the scraper never crashes on a bad site.
 
 ---
 
@@ -261,14 +247,10 @@ every_site_scraping/
 ├── cli.py              # command-line entry point
 ├── multiscrape.py      # fetch + strict CSV orchestration
 ├── scraper.py          # structured extractor + SCHEMA + DICTIONARY
-├── stress_test.py      # 58-site stress driver with per-site diagnostics
 ├── data_quality.py     # CSV integrity auditor
-├── test_scraper.py     # 34 automated tests (incl. link-harvest + regression locks)
+├── test_scraper.py     # 39 automated tests (incl. regression locks)
 ├── requirements.txt    # dependencies (requests, beautifulsoup4, lxml)
-├── README.md           # this file
-├── TESTS.txt           # 27-site quick test list
-├── STRESS_URLS.txt     # 58-site stress list (PK + USA + worldwide)
-└── STRESS_URLS2.txt    # 60-site stress list (small/medium sites)
+└── README.md           # this file
 ```
 
 ---

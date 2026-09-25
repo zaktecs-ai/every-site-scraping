@@ -213,6 +213,29 @@ class TestRegressionFixes(unittest.TestCase):
         self.assertEqual(d["h1_count"], "1")
         self.assertIn("Code", d["h1_text"])
 
+    def test_jsonld_contacts_are_captured(self):
+        # A contact email/phone that lives ONLY in JSON-LD (common for
+        # business/local pages) must still be captured.
+        html = """<html><head>
+        <script type="application/ld+json">
+        {"@type":"LocalBusiness","name":"Clinic",
+         "email":"hello@clinic.test","telephone":"+92 300 1234567",
+         "address":{"@type":"PostalAddress","addressLocality":"Karachi"}}
+        </script></head><body><p>Call us</p></body></html>"""
+        d = extract_site(html, url="https://clinic.test")
+        self.assertIn("hello@clinic.test", d["contact_emails"])
+        self.assertIn("+92 300 1234567", d["contact_phones"])
+
+    def test_jsonld_contacts_nested_recursion(self):
+        # email nested deeper must still be found (recursive walk).
+        html = """<html><head>
+        <script type="application/ld+json">
+        {"@type":"Organization","subOrganization":
+         {"@type":"LocalBusiness","email":"deep@nested.test"}}
+        </script></head><body>x</body></html>"""
+        d = extract_site(html, url="https://n.test")
+        self.assertIn("deep@nested.test", d["contact_emails"])
+
     def test_custom_element_subtree_is_walked(self):
         # Unknown/custom elements (Web Components) must be descended into,
         # not dropped — this caused full-page data loss on IBM.
