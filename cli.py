@@ -62,6 +62,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-o", "--output", metavar="CSV_PATH", default="output.csv",
                    help="Output CSV path (default: output.csv). Side files: "
                         "<output>.log.jsonl, .checkpoint.json, .summary.json.")
+    p.add_argument("--json", metavar="JSON_PATH", nargs="?", const="~auto~",
+                   help="Also write a structured JSON file (typed site "
+                        "objects: real arrays, ints, bools). Default path: "
+                        "<output>.json (e.g. output.csv.json); pass a path "
+                        "to choose your own.")
     p.add_argument("-w", "--workers", type=int, default=10,
                    help="Parallel workers (default: 10). All N workers scrape "
                         "concurrently; effective parallelism is bounded by "
@@ -127,6 +132,11 @@ def main() -> int:
         if n_done == n_total:
             sys.stderr.write("\n")
 
+    json_path = None
+    if args.json:
+        json_path = (args.json if args.json != "~auto~"
+                     else f"{args.output}.json")
+
     result = run(
         urls,
         output=args.output,
@@ -136,6 +146,7 @@ def main() -> int:
         user_agent=args.user_agent,
         quiet=args.quiet,
         progress=None if args.quiet else progress,
+        json_output=json_path,
     )
 
     ok = result["ok"]
@@ -143,6 +154,8 @@ def main() -> int:
     print(f"\nDone. {ok}/{total} sites scraped successfully "
           f"({result['workers']} workers, {result['elapsed_s']}s).")
     print(f"{len(SCHEMA)} columns written to: {args.output}")
+    if json_path:
+        print(f"Structured JSON: {json_path}")
     print(f"Summary: {args.output}.summary.json | Log: {args.output}.log.jsonl")
     return 0 if ok else 1
 
