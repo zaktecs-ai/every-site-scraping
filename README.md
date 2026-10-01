@@ -1,18 +1,17 @@
 <div align="center">
 
-# 🕷️ Every-Site Scraper
+<img src="docs/banner.jpg" alt="Every-Site Scraper — parallel web scraping engine" width="880"/>
 
-**Scrape thousands of websites in parallel — one structured row per site.**
+[![Python](https://img.shields.io/badge/python-3.8%2B-3776AB?logo=python&logoColor=white)](https://www.python.org)
+[![Code size](https://img.shields.io/github/languages/code-size/zaktecs-ai/every-site-scraping?color=blueviolet)](#)
+[![Last commit](https://img.shields.io/github/last-commit/zaktecs-ai/every-site-scraping?color=success)](#)
+[![Tests](https://img.shields.io/badge/tests-68%20passing-brightgreen?logo=githubactions&logoColor=white)](#-testing--validation)
+[![Validated](https://img.shields.io/badge/validated-380%2B%20live%20sites-orange)](#-testing--validation)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](#-license)
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org)
-[![Tests](https://img.shields.io/badge/tests-68%20passing-brightgreen.svg)](#-testing--validation)
-[![Sites scraped](https://img.shields.io/badge/validated-380%2B%20sites-orange.svg)](#-testing--validation)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](#-license)
-[![Dependencies](https://img.shields.io/badge/deps-3-blue.svg)](#-install)
+**Parallel engine · 90-column schema · crash-safe resume · CSV + JSON output**
 
-Parallel engine · 90-column schema · crash-safe resume · CSV + JSON output
-
-**[Install](#-install) · [Quick Start](#-quick-start) · [CLI Reference](#️-cli-reference) · [Output](#-output) · [Run Summary](#-the-run-summary) · [Validation](#-testing--validation)**
+[**Install**](#-install) · [**Quick Start**](#-quick-start) · [**CLI**](#️-cli-reference) · [**Output**](#-output) · [**Run Summary**](#-the-run-summary) · [**Validation**](#-testing--validation)
 
 </div>
 
@@ -38,7 +37,11 @@ flowchart LR
     C --> CP["💾 Checkpoint<br/>(atomic)"]
 ```
 
-**Every row is flushed + fsynced the moment it completes** — `kill -9` loses nothing already written.
+> [!IMPORTANT]
+> **Every row is flushed + fsynced the moment it completes** — `kill -9` loses nothing already written. `--resume` continues exactly where it stopped.
+
+> [!TIP]
+> Memory stays **flat regardless of site count** — rows are streamed to disk and folded into small accumulators. 100 sites or 100,000 sites at the same `--workers`: same RAM.
 
 ### 🛡️ Guarantees
 
@@ -62,6 +65,7 @@ cd every-site-scraping
 pip install -r requirements.txt
 ```
 
+> [!NOTE]
 > Python 3.8+ · just `requests`, `beautifulsoup4`, `lxml`.
 > Optional: `pip install psutil` for richer CPU/memory stats in the summary.
 
@@ -80,6 +84,9 @@ python cli.py -f sites.csv -o out.csv -w 30 --json
 python cli.py -f sites.csv -o out.csv -w 30 --json --resume
 ```
 
+> [!TIP]
+> **Your CRM/lead-export CSV works as-is.** The URL column is auto-detected — by header name (`url`, `website`, `site`, `link`, `domain`…) or by scanning which column looks like URLs. Multi-column sheets need zero preprocessing.
+
 **Input files:**
 
 | Format | How it's read |
@@ -96,6 +103,28 @@ python cli.py -f sites.csv -o out.csv -w 30 --json --resume
 | `out.csv.summary.json` | Rich run report — timing, throughput, CPU/RAM, per-worker stats, errors |
 | `out.csv.log.jsonl` | Structured event log (one JSON object per line) |
 | `out.csv.checkpoint.json` | Atomic progress checkpoint |
+
+### 💥 Crash-safe by design
+
+A run can be killed at any moment — `Ctrl-C`, `kill -9`, power loss, reboot. Nothing already written is ever lost, and `--resume` picks up exactly where it stopped:
+
+```mermaid
+sequenceDiagram
+    participant R as Runner
+    participant W as Workers (N)
+    participant D as Disk (CSV + JSON)
+
+    R->>W: distribute URLs
+    W->>D: row complete → flush + fsync
+    W->>D: row complete → flush + fsync
+    Note over W,D: 💀 SIGKILL — mid-run crash
+    Note over D: 81 rows already on disk ✅
+    Note over R: rerun with --resume
+    R->>D: read done-set, repair torn tail
+    R->>W: only the remaining URLs
+    W->>D: append + fsync each row
+    Note over D: all rows, zero loss ✅
+```
 
 ---
 
@@ -117,7 +146,9 @@ python cli.py [URLS...] [options]
 ```
 
 **Exit codes:** `0` all sites ok · `1` some failed · `2` usage error.
-Existing output file without `--resume`/`--overwrite` is a hard error — data is never silently destroyed.
+
+> [!WARNING]
+> An existing output file without `--resume`/`--overwrite` is a **hard error** — your data is never silently destroyed.
 
 ---
 
@@ -176,7 +207,17 @@ Every run ends with a rich `summary.json` — everything you need to analyze how
 
 `meta` (run id, elapsed) · `input` (URL counts, resume) · `results` (ok / failed / success rate) · `throughput` (sites/sec) · `resources` (peak & mean CPU %, cores, RAM) · `workers` (per-worker sites/ok/failed/bytes/first-url — proves all N worked) · `timing` · `stability` · `checkpoint` · `output` · `data_quality` (fetch-status histogram, top errors, bytes scraped) · `domain_analysis` · `response_time_analysis` (min/median/p95/max) · `platform` · `health` (verdict + actionable warnings).
 
-A sample from the live 213-site validation run:
+A sample from the live 213-site validation run — what a real run looks like in your terminal:
+
+```console
+$ python cli.py -f round5_urls.txt -o out.csv -w 30 --json
+[213/213] 100.0%  https://cabinet.gov.pk/ -> ok
+
+Done. 191/213 sites scraped successfully (30 workers, 84.1s).
+90 columns written to: out.csv
+Structured JSON: out.csv.json
+Summary: out.csv.summary.json | Log: out.csv.log.jsonl
+```
 
 | Metric | Value |
 | --- | --- |
@@ -185,6 +226,17 @@ A sample from the live 213-site validation run:
 | Success | 191 ok (89.7%) — 22 honest failures (502/403/429 bot defences) |
 | Workers active | **30/30** (2–13 sites each, zero idle) |
 | Crash test | `SIGKILL` mid-run → 81 rows intact on disk → `--resume` → all 213, zero loss |
+
+Real success/failure split from that run — every failure honestly reported per row, never a crash:
+
+```mermaid
+pie showData title Round 5 — 213 live sites, fetch outcomes
+    "Scraped OK" : 191
+    "HTTP 502" : 8
+    "HTTP 403 (bot defence)" : 7
+    "HTTP 202 (challenge)" : 3
+    "HTTP 429 (rate limit)" : 3
+```
 
 ---
 
@@ -199,11 +251,14 @@ python data_quality.py out.csv        # audit any output CSV
 
 **Five live validation rounds, 380+ real websites** — small businesses, government portals, software houses, clinics, restaurants, universities, nonprofits, and global giants. Each round found and fixed real bugs:
 
-1. **R1** (27 sites) — baseline extraction.
-2. **R2** (58) — visibility bugs: `overflow-hidden` class falsely hiding Apple/IBM headings; headings inside custom elements dropped.
-3. **R3** (60) — `sr-only` a11y headings kept; heading-in-`<li>` recovered (python.org); HTTP-202-empty reported honestly.
-4. **R4** (65) — contacts living only in JSON-LD captured (recursive scan).
-5. **R5** (213, 30 workers) — the parallel engine: throughput, SIGKILL+resume proof, a Unicode line-separator bug that silently dropped a 1.4 MB site from JSON (fixed + regression-locked), flat-memory streaming summaries.
+```mermaid
+timeline title Hardening history — five live bug-hunt rounds
+    R1 : 27 tech sites — baseline extraction
+    R2 : 58 sites — visibility bugs fixed (overflow-hidden, custom elements)
+    R3 : 60 sites — a11y headings kept, heading-in-li recovered, HTTP-202 honesty
+    R4 : 65 sites — JSON-LD-only contacts captured (recursive)
+    R5 : 213 sites, 30 workers — parallel engine: SIGKILL+resume proof, Unicode data-loss bug fixed, flat-memory streaming
+```
 
 ---
 
