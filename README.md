@@ -25,16 +25,16 @@ Give it **any list of URLs** — a TXT file, a CSV with a website column, or com
 
 ```mermaid
 flowchart LR
-    A["📥 Input<br/>(TXT / CSV / URLs)"] --> Q["Queue"]
+    A["Input<br/>(TXT / CSV / URLs)"] --> Q["Queue"]
     Q --> W1["Worker 1"]
     Q --> W2["Worker 2"]
-    Q --> WN["Worker N ⚙️"]
-    W1 --> C["🗄️ Collector<br/>(single writer)"]
+    Q --> WN["Worker N"]
+    W1 --> C["Collector<br/>(single writer)"]
     W2 --> C
     WN --> C
-    C --> CSV["📄 CSV<br/>90 columns"]
-    C --> JSON["🧾 JSON<br/>typed sites"]
-    C --> CP["💾 Checkpoint<br/>(atomic)"]
+    C --> CSV["CSV<br/>90 columns"]
+    C --> JSON["JSON<br/>typed sites"]
+    C --> CP["Checkpoint<br/>(atomic)"]
 ```
 
 > [!IMPORTANT]
@@ -115,15 +115,15 @@ sequenceDiagram
     participant D as Disk (CSV + JSON)
 
     R->>W: distribute URLs
-    W->>D: row complete → flush + fsync
-    W->>D: row complete → flush + fsync
-    Note over W,D: 💀 SIGKILL — mid-run crash
-    Note over D: 81 rows already on disk ✅
+    W->>D: row complete, flush + fsync
+    W->>D: row complete, flush + fsync
+    Note over W,D: SIGKILL - mid-run crash
+    Note over D: 81 rows already on disk
     Note over R: rerun with --resume
     R->>D: read done-set, repair torn tail
     R->>W: only the remaining URLs
     W->>D: append + fsync each row
-    Note over D: all rows, zero loss ✅
+    Note over D: all rows, zero loss
 ```
 
 ---
@@ -230,7 +230,7 @@ Summary: out.csv.summary.json | Log: out.csv.log.jsonl
 Real success/failure split from that run — every failure honestly reported per row, never a crash:
 
 ```mermaid
-pie showData title Round 5 — 213 live sites, fetch outcomes
+pie showData title Round 5 - 213 live sites, fetch outcomes
     "Scraped OK" : 191
     "HTTP 502" : 8
     "HTTP 403 (bot defence)" : 7
@@ -252,12 +252,12 @@ python data_quality.py out.csv        # audit any output CSV
 **Five live validation rounds, 380+ real websites** — small businesses, government portals, software houses, clinics, restaurants, universities, nonprofits, and global giants. Each round found and fixed real bugs:
 
 ```mermaid
-timeline title Hardening history — five live bug-hunt rounds
-    R1 : 27 tech sites — baseline extraction
-    R2 : 58 sites — visibility bugs fixed (overflow-hidden, custom elements)
-    R3 : 60 sites — a11y headings kept, heading-in-li recovered, HTTP-202 honesty
-    R4 : 65 sites — JSON-LD-only contacts captured (recursive)
-    R5 : 213 sites, 30 workers — parallel engine: SIGKILL+resume proof, Unicode data-loss bug fixed, flat-memory streaming
+timeline title Hardening history - five live bug-hunt rounds
+    Round 1 : 27 tech sites, baseline extraction
+    Round 2 : 58 sites, visibility bugs fixed (overflow-hidden, custom elements)
+    Round 3 : 60 sites, a11y headings kept, heading-in-li recovered, HTTP-202 honesty
+    Round 4 : 65 sites, JSON-LD-only contacts captured (recursive)
+    Round 5 : 213 sites at 30 workers, parallel engine, SIGKILL+resume proof, Unicode bug fixed, flat memory
 ```
 
 ---
