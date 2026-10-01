@@ -4,31 +4,43 @@
 
 **Scrape thousands of websites in parallel — one structured row per site.**
 
-Parallel engine · 90-column schema · crash-safe resume · JSON + CSV output
+[![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org)
+[![Tests](https://img.shields.io/badge/tests-68%20passing-brightgreen.svg)](#-testing--validation)
+[![Sites scraped](https://img.shields.io/badge/validated-380%2B%20sites-orange.svg)](#-testing--validation)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](#-license)
+[![Dependencies](https://img.shields.io/badge/deps-3-blue.svg)](#-install)
 
-[Install](#-install) · [Quick Start](#-quick-start) · [CLI Reference](#-cli-reference) · [Output](#-output) · [Summary](#-the-run-summary)
+Parallel engine · 90-column schema · crash-safe resume · CSV + JSON output
+
+**[Install](#-install) · [Quick Start](#-quick-start) · [CLI Reference](#️-cli-reference) · [Output](#-output) · [Run Summary](#-the-run-summary) · [Validation](#-testing--validation)**
 
 </div>
 
 ---
 
-## What it does
+## ⚡ What it does
 
 Give it **any list of URLs** — a TXT file, a CSV with a website column, or command-line args. Every site gets **one row with 90 fixed columns**: identity, Open Graph, Twitter cards, SEO, content structure, every link & asset URL, social profiles, contacts, JSON-LD organization data, tech stack, and page weight.
 
 **10–40+ workers scrape in parallel.** Every completed site is flushed to disk *immediately* — a crash loses nothing already written, and `--resume` continues exactly where it stopped.
 
 ```mermaid
-input (CSV/TXT) ──► in-queue ──┬─► worker 1 ─┐
-                               ├─► worker 2  │ completions
-                               │   ...       │ flow to ONE
-                               └─► worker N ─┘ collector
-                                                │
-                              CSV row + JSON site — flush + fsync
-                              after EVERY site + atomic checkpoint
+flowchart LR
+    A["📥 Input<br/>(TXT / CSV / URLs)"] --> Q["Queue"]
+    Q --> W1["Worker 1"]
+    Q --> W2["Worker 2"]
+    Q --> WN["Worker N ⚙️"]
+    W1 --> C["🗄️ Collector<br/>(single writer)"]
+    W2 --> C
+    WN --> C
+    C --> CSV["📄 CSV<br/>90 columns"]
+    C --> JSON["🧾 JSON<br/>typed sites"]
+    C --> CP["💾 Checkpoint<br/>(atomic)"]
 ```
 
-### Guarantees
+**Every row is flushed + fsynced the moment it completes** — `kill -9` loses nothing already written.
+
+### 🛡️ Guarantees
 
 | Guarantee | How |
 | --- | --- |
@@ -158,7 +170,7 @@ The JSON file is written **incrementally and crash-safely alongside the CSV**; o
 
 ---
 
-## 📊 The run summary
+## 📊 The Run Summary
 
 Every run ends with a rich `summary.json` — everything you need to analyze how the scrape went:
 
@@ -176,7 +188,7 @@ A sample from the live 213-site validation run:
 
 ---
 
-## 🧪 Testing & validation
+## 🧪 Testing & Validation
 
 ```bash
 python -m unittest discover -v        # 68 tests
@@ -195,7 +207,7 @@ python data_quality.py out.csv        # audit any output CSV
 
 ---
 
-## 📁 Project layout
+## 📁 Project Layout
 
 ```
 every-site-scraping/
@@ -216,6 +228,11 @@ every-site-scraping/
 - **Slow sites?** `-t 40`. **Bot defences (403/429)?** Reported per-row — see `top_errors` in the summary.
 - **RAM tight?** Lower `--workers` — memory scales with workers, not sites.
 - **JavaScript-only SPAs** render client-side; `rendering_type` flags them honestly.
+
+
+## 📄 License
+
+MIT — free to use, modify, and ship. Scraped data belongs to you; respect each site's `robots.txt` and terms.
 
 ---
 
