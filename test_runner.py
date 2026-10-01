@@ -276,6 +276,131 @@ class TestRunLog(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Structured JSON output
+# ---------------------------------------------------------------------------
+
+class TestJSONOutput(unittest.TestCase):
+    def _row(self, url: str, status: str = "ok") -> dict:
+        d = {c: "" for c in SCHEMA}
+        d["url"] = url
+        d["fetch_status"] = status
+        d["http_status"] = "200"
+        d["internal_links_list"] = "https://a.test/1\nhttps://a.test/2"
+        d["internal_links"] = "2"
+        d["https"] = "true"
+        d["word_count"] = "42"
+        d["response_time_ms"] = "123"
+        return d
+
+    def test_json_file_is_valid_document_with_typed_sites(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, "out.json")
+            w = cp.SafeJSONWriter(p, meta={"run_id": "t1"})
+            w.write_row(self._row("https://a.test"))
+            w.write_row(self._row("https://b.test"))
+            w.close()
+            doc = json.loads(Path(p).read_text(encoding="utf-8"))
+            self.assertEqual(doc["meta"]["run_id"], "t1")
+            self.assertEqual(len(doc["sites"]), 2)
+            s = doc["sites"][0]
+            # typed values, not strings
+            self.assertEqual(s["internal_links_list"],
+                             ["https://a.test/1", "https://a.test/2"])
+            self.assertIsInstance(s["internal_links"], int)
+            self.assertIsInstance(s["word_count"], int)
+            self.assertIsInstance(s["response_time_ms"], int)
+            self.assertIs(s["https"], True)
+            # count == len(list) self-verification carries into JSON
+            self.assertEqual(s["internal_links"], len(s["internal_links_list"]))
+
+    def test_json_repair_drops_torn_last_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, "out.json")
+            w = cp.SafeJSONWriter(p, meta={"run_id": "t2"})
+            w.write_row(self._row("https://a.test"))
+            w.write_row(self._row("https://b.test"))
+            w.close()
+            # simulate a crash: append a half line, then repair
+            with open(p, "a", encoding="utf-8") as f:
+                f.write('{"url": "https://c.test", "wor')  # torn
+            n = cp.repair_json_file(p)
+            self.assertEqual(n, 2)                     # only intact sites
+            # repair leaves the appendable form; finalize -> valid document
+            cp.finalize_json_file(p)
+            doc = json.loads(Path(p).read_text(encoding="utf-8"))
+            self.assertEqual(len(doc["sites"]), 2)
+            self.assertEqual({s["url"] for s in doc["sites"]},
+                             {"https://a.test", "https://b.test"})
+
+    def test_json_survives_unicode_line_separator_in_text(self):
+        # REAL BUG (found live on contour-software.com): str.splitlines()
+        # splits on \u2028 (Unicode line separator) which json.dumps keeps
+        # INSIDE a string (ensure_ascii=False) — so a site whose text
+        # contains \u2028 had its JSON line broken in two and the site
+        # silently dropped. Line handling must split on real "\n" only.
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, "out.json")
+            d = {c: "" for c in SCHEMA}
+            d["url"] = "https://u.test"
+            d["fetch_status"] = "ok"
+            d["visible_text_preview"] = "weird\u2028separator\u2029inside"
+            d["headings_outline"] = "h1: line\u2028sep"
+            w = cp.SafeJSONWriter(p, meta={"run_id": "t4"})
+            w.write_row(d)
+            w.write_row({**d, "url": "https://v.test"})
+            w.close()
+            doc = json.loads(Path(p).read_text(encoding="utf-8"))
+            self.assertEqual(len(doc["sites"]), 2)
+            self.assertEqual(doc["sites"][0]["visible_text_preview"],
+                             "weird\u2028separator\u2029inside")
+            # repair + finalize stay lossless too
+            n = cp.repair_json_file(p)
+            self.assertEqual(n, 2)
+            cp.finalize_json_file(p)
+            doc2 = json.loads(Path(p).read_text(encoding="utf-8"))
+            self.assertEqual(len(doc2["sites"]), 2)
+
+    def test_finalize_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, "out.json")
+            w = cp.SafeJSONWriter(p, meta={"run_id": "t3"})
+            w.write_row(self._row("https://a.test"))
+            w.close()
+            n1 = cp.finalize_json_file(p)
+            n2 = cp.finalize_json_file(p)
+            self.assertEqual(n1, n2)
+            doc = json.loads(Path(p).read_text(encoding="utf-8"))
+            self.assertEqual(len(doc["sites"]), 1)
+
+
+class TestRunnerJSONEndToEnd(unittest.TestCase):
+    """runner.run(json_output=...) writes both CSV and a valid JSON doc."""
+
+    def test_json_written_and_matches_csv(self):
+        from runner import run
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "out.csv")
+            jp = os.path.join(tmp, "out.json")
+            urls = [f"https://x{i}.test" for i in range(6)]
+            result = run(urls, output=out, workers=3, quiet=True,
+                         json_output=jp,
+                         log_path=os.path.join(tmp, "l.jsonl"),
+                         summary_path=os.path.join(tmp, "s.json"),
+                         checkpoint_path=os.path.join(tmp, "c.json"))
+            self.assertEqual(result["rows"], 6)
+            doc = json.loads(Path(jp).read_text(encoding="utf-8"))
+            self.assertEqual(len(doc["sites"]), 6)
+            json_urls = {s["url"] for s in doc["sites"]}
+            self.assertEqual(json_urls, set(urls))
+            # CSV row count == JSON site count
+            with open(out, encoding="utf-8-sig", newline="") as f:
+                csv_rows = [r for r in csv.reader(f) if r]
+            self.assertEqual(len(csv_rows) - 1, len(doc["sites"]))
+            # summary knows about the JSON output
+            self.assertEqual(result["summary"]["output"]["json"], jp)
+
+
+# ---------------------------------------------------------------------------
 # End-to-end parallel run against a local HTTP server
 # ---------------------------------------------------------------------------
 
