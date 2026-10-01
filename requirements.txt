@@ -1,3 +1,7 @@
 requests>=2.28
 beautifulsoup4>=4.11
 lxml>=4.9
+
+# Optional (recommended for richer CPU/memory stats in the run summary):
+# pip install psutil
+# psutil>=5.9
