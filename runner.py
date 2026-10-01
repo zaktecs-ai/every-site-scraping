@@ -99,6 +99,7 @@ def run(
     log_path: Optional[str] = None,
     summary_path: Optional[str] = None,
     checkpoint_path: Optional[str] = None,
+    json_output: Optional[str] = None,
     quiet: bool = False,
     progress: Optional[Callable[[int, int, str], None]] = None,
 ) -> Dict:
@@ -107,6 +108,8 @@ def run(
     Returns a result dict: total, ok, rows, elapsed_s, workers, summary.
     ``progress(n_done, n_total, status)`` is called from the collector
     after every row lands in the CSV.
+    When ``json_output`` is set, a typed, structured JSON file is written
+    alongside the CSV (same rows, real arrays/ints/bools).
     """
     t_start = time.time()
     run_id = time.strftime("%Y%m%d-%H%M%S", time.gmtime(t_start))
@@ -155,6 +158,39 @@ def run(
     if resume:
         checkpointer.load()
 
+    # ---- optional structured JSON output (typed, crash-safe, resumed) ------
+    json_path: Optional[str] = None
+    json_writer = None
+    json_healed = 0
+    json_rebuilt = False
+    if json_output:
+        json_path = str(json_output)
+        json_meta = {
+            "run_id": run_id,
+            "workers": workers,
+            "timeout": timeout,
+            "output_csv": str(output),
+            "schema_columns": len(SCHEMA),
+            "list_columns_join": "newline (\\n) in CSV; real arrays here",
+        }
+        if resume and Path(json_path).exists() and Path(json_path).stat().st_size > 0:
+            # Heal a crashed JSON, then verify it matches the CSV (the
+            # source of truth). Counts equal -> append; mismatch -> rebuild.
+            json_healed = cp.repair_json_file(json_path)
+            n_json = cp.count_json_sites(json_path)
+            if n_json == len(done_before):
+                json_writer = cp.SafeJSONWriter(json_path, meta=json_meta,
+                                                write_header=False)
+            else:
+                cp.rebuild_json_from_csv(str(output), json_path, json_meta)
+                json_rebuilt = True
+                json_writer = cp.SafeJSONWriter(json_path, meta=json_meta,
+                                                write_header=False)
+        else:
+            # fresh JSON (ignore any stale file from a non-resume rerun)
+            json_writer = cp.SafeJSONWriter(json_path, meta=json_meta,
+                                            write_header=True)
+
     # ---- shared plumbing -----------------------------------------------------
     in_q: "queue.Queue" = queue.Queue()
     out_q: "queue.Queue" = queue.Queue()
@@ -191,12 +227,15 @@ def run(
         while True:
             item = out_q.get()
             if item is _DONE:
+                out_q.task_done()   # keep join() balanced for every pill
                 return
             kind, wid, payload = item
             w = workers_list[wid - 1]
             if kind == "row":
                 row, ms_active, n_bytes = payload
                 writer.write_row(row)            # flush + fsync EVERY row
+                if json_writer is not None:
+                    json_writer.write_row(row)   # typed, flush + fsync too
                 n_done += 1
                 # -- fold into the streaming aggregate (no row retained) --
                 agg["n_rows"] += 1
@@ -311,13 +350,20 @@ def run(
     stop_mon.set()
     mon_thread.join(timeout=2)
 
-    # Drain stragglers, then stop the collector.
-    while not out_q.empty():
-        time.sleep(0.05)
+    # Drain stragglers DETERMINISTICALLY, then stop the collector.
+    # out_q.join() waits on task_done() — it cannot return while the
+    # collector is still mid-write (a plain empty() check CAN: the item is
+    # already get()'d, so the queue looks empty while the write is still
+    # in flight — closing the writer then races the collector and drops
+    # the last row(s); seen live with a 1.4 MB site).
+    out_q.join()
     out_q.put(_DONE)
-    collector.join(timeout=10)
-
+    collector.join()
+    # Belt-and-braces: after the collector thread has exited, no writer
+    # call can race it anymore.
     writer.close()
+    if json_writer is not None:
+        json_writer.close()   # finalizes into one valid JSON document
 
     # ---- final checkpoint + summary -------------------------------------------------
     save_checkpoint(agg["n_rows"], force=True)
@@ -358,6 +404,9 @@ def run(
     })
     sb.set("output", {
         "csv": str(output),
+        "json": json_path,
+        "json_healed_lines": json_healed,
+        "json_rebuilt_from_csv": json_rebuilt,
         "columns": len(SCHEMA),
         "rows_this_run": agg["n_rows"],
         "append_mode": not fresh,

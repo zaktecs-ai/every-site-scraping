@@ -217,6 +217,389 @@ def _repair_torn_tail(csv_path: str) -> Optional[int]:
     return len(fragment)
 
 
+# ---------------------------------------------------------------------------
+# Crash-safe incremental JSON writer (typed, structured, one site per object)
+# ---------------------------------------------------------------------------
+
+# Columns written as real JSON arrays (newline-separated in CSV; see
+# scraper.LIST_COLUMNS / LIST_DELIM — the single source of truth).
+_JSON_LIST_COLUMNS = None  # lazily imported from scraper to avoid a cycle
+
+
+def _json_list_columns() -> set:
+    global _JSON_LIST_COLUMNS
+    if _JSON_LIST_COLUMNS is None:
+        from scraper import LIST_COLUMNS  # local import: avoid circular import
+        _JSON_LIST_COLUMNS = set(LIST_COLUMNS)
+    return _JSON_LIST_COLUMNS
+
+
+def row_to_json_site(row: Dict[str, str]) -> Dict:
+    """Convert one CSV row (all-strings) into a typed, structured site object.
+
+    Types are deterministic and derived from the canonical schema:
+      * list columns  -> real arrays  (split on the newline delimiter)
+      * count columns -> int (with paired lists, so count == len(list))
+      * "https"       -> bool
+      * ms/bytes cols -> int
+      * everything else -> str
+    """
+    from scraper import COUNT_LIST_PAIRS, LIST_DELIM
+    lists = _json_list_columns()
+    site: Dict = {}
+    for col, val in row.items():
+        if col in lists:
+            site[col] = [p for p in (val or "").split(LIST_DELIM) if p] if val else []
+        elif col in ("https",):
+            site[col] = (val == "true")
+        elif col in ("http_status", "h1_count", "h2_count", "h3_count",
+                     "h4_count", "internal_links", "external_links",
+                     "total_links", "external_domains", "all_urls_count",
+                     "image_urls_count", "images_count", "images_missing_alt",
+                     "document_links_count", "media_urls_count", "iframes_count",
+                     "scripts_count", "styles_count", "forms_count",
+                     "page_size_bytes", "response_time_ms",
+                     "word_count", "character_count"):
+            site[col] = int(val) if str(val).lstrip("-").isdigit() else _num_or_raw(val)
+        else:
+            site[col] = val if val is not None else ""
+    return site
+
+
+def _num_or_raw(val) -> object:
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return val
+
+
+class SafeJSONWriter:
+    """Incremental JSON-lines-of-objects writer, crash-safe like the CSV.
+
+    The file is a single valid JSON document::
+
+        {"meta": {...}, "sites": [ {...}, {...}, ... ]}
+
+    BUT it is built incrementally and kept valid after every site by
+    rewriting the small tail (``]}`` closer + start of the row was complex
+    to keep atomic) — instead, on disk it is stored as concatenated
+    one-object-per-line JSONL *with a wrapper header*, and finalized on
+    close() into a single JSON document. To stay crash-safe, every append
+    is flushed + fsynced immediately; if a crash leaves a torn last line
+    or a missing closer, `repair_json_file()` heals it on resume.
+    """
+
+    _OPENER = '{"meta": '
+    _SITES_KEY = ', "sites": ['
+
+    def __init__(self, path: str, meta: Dict, write_header: bool = True):
+        self.path = str(path)
+        self.meta = meta
+        self.rows_written = 0
+        Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        # "a" keeps prior lines on resume; header only when starting fresh.
+        self._fh: TextIO = open(self.path, "a", encoding="utf-8")
+        if write_header:
+            self._fh.write(self._OPENER + json.dumps(meta, ensure_ascii=False) +
+                           self._SITES_KEY + "\n")
+            self._fh.flush()
+            os.fsync(self._fh.fileno())
+
+    def write_row(self, row: Dict[str, str]) -> None:
+        line = json.dumps(row_to_json_site(row), ensure_ascii=False,
+                          default=str)
+        self._fh.write(line + "\n")
+        self._fh.flush()
+        os.fsync(self._fh.fileno())
+        self.rows_written += 1
+
+    def close(self) -> None:
+        """Finalize into a single valid JSON document (atomic replace)."""
+        try:
+            self._fh.flush()
+            os.fsync(self._fh.fileno())
+        except (OSError, ValueError):
+            pass
+        self._fh.close()
+        finalize_json_file(self.path)
+
+    @property
+    def is_fresh_file(self) -> bool:
+        return self.rows_written == 0 and not Path(self.path).exists()
+
+
+def finalize_json_file(path: str) -> int:
+    """Convert the JSONL-on-disk form into one valid JSON document.
+
+    Idempotent: a file that is already a finalized document is returned
+    as-is (site count). Torn trailing lines are dropped.
+    """
+    p = Path(path)
+    if not p.exists():
+        return 0
+    raw = p.read_text(encoding="utf-8", errors="replace")
+    if not raw.strip():
+        return 0
+    # already finalized?
+    try:
+        doc = json.loads(raw)
+        if isinstance(doc, dict) and isinstance(doc.get("sites"), list):
+            return sum(1 for s in doc["sites"] if isinstance(s, dict))
+    except ValueError:
+        pass
+    # NOTE: split on real "\n" only — str.splitlines() ALSO splits on
+    # \u2028/\u2029/\x85/\x0b/\x0c, which can legally appear INSIDE a JSON
+    # string (json.dumps never escapes them with ensure_ascii=False), so
+    # splitlines() can break a single site line in two and lose the site.
+    lines = [ln for ln in raw.split("\n") if ln.strip()]
+    meta: Dict = {}
+    sites: List[Dict] = []
+    started = False
+    for i, ln in enumerate(lines):
+        s = ln.strip()
+        if i == 0 and s.startswith('{"meta":'):
+            # wrapper line: {"meta": {...}, "sites": [
+            m = re.match(r'^\{"meta": (.*), "sites": \[$', s)
+            if m:
+                try:
+                    meta = json.loads(m.group(1))
+                except ValueError:
+                    meta = {}
+                started = True
+                continue
+        try:
+            sites.append(json.loads(s))
+        except ValueError:
+            continue  # torn / junk line dropped
+    doc = {"meta": meta, "sites": sites}
+    tmp = str(path) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(doc, f, ensure_ascii=False, indent=1, default=str)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, str(path))
+    return len(sites)
+
+
+def _write_jsonl_form(path: str, meta: Dict, sites: List[Dict]) -> None:
+    """Write the appendable JSONL-on-disk form atomically."""
+    tmp = str(path) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(SafeJSONWriter._OPENER + json.dumps(meta, ensure_ascii=False) +
+                SafeJSONWriter._SITES_KEY + "\n")
+        for s in sites:
+            f.write(json.dumps(s, ensure_ascii=False, default=str) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, str(path))
+
+
+def repair_json_file(path: str) -> int:
+    """Heal a JSON output into the appendable JSONL-on-disk form.
+
+    Handles every on-disk state:
+      1. a FINALIZED single JSON document (a previous complete run) —
+         converted back to the appendable form so a resumed run can append;
+      2. a FINALIZED document damaged by a torn append (crash after close
+         — the tail is garbage) — intact site objects are salvaged by a
+         string-aware brace scan of the "sites" array region;
+      3. the JSONL form with a torn last line (a crash mid-append) — the
+         torn line is dropped, intact lines kept;
+      4. missing/empty — treated as fresh (0 sites).
+
+    Returns the count of intact site objects.
+    """
+    p = Path(path)
+    if not p.exists():
+        return 0
+    raw = p.read_text(encoding="utf-8", errors="replace")
+    if not raw.strip():
+        return 0
+
+    # 1) intact finalized document form
+    try:
+        doc = json.loads(raw)
+        if isinstance(doc, dict) and isinstance(doc.get("sites"), list):
+            meta = doc.get("meta") if isinstance(doc.get("meta"), dict) else {}
+            sites = [s for s in doc["sites"] if isinstance(s, dict)]
+            _write_jsonl_form(str(path), meta, sites)
+            return len(sites)
+    except ValueError:
+        pass
+
+    # 2) JSONL-on-disk form (possibly torn). Real-"\n" split — see NOTE in
+    #    finalize_json_file: splitlines() would also split on \u2028 etc.
+    lines = [ln for ln in raw.split("\n") if ln.strip()]
+
+    def _is_site_line(s: str) -> bool:
+        s = s.strip()
+        if not s.startswith("{") or not s.endswith("}"):
+            return False
+        try:
+            return isinstance(json.loads(s), dict)
+        except ValueError:
+            return False
+
+    # 2) JSONL-on-disk form? (single-line header: {"meta": ..., "sites": [)
+    if lines and re.match(r'^\{"meta": .*"sites": \[$', lines[0].strip()):
+        body = lines[1:]
+        if body and not _is_site_line(body[-1]):
+            body = body[:-1]              # drop torn last line
+        meta: Dict = {}
+        m = re.match(r'^\{"meta": (.*), "sites": \[$', lines[0].strip())
+        if m:
+            try:
+                meta = json.loads(m.group(1))
+            except ValueError:
+                meta = {}
+        sites = []
+        for ln in body:
+            s = ln.strip()
+            if _is_site_line(s):
+                try:
+                    sites.append(json.loads(s))
+                except ValueError:
+                    continue
+        _write_jsonl_form(str(path), meta, sites)
+        return len(sites)
+
+    # 3) damaged finalized document (pretty-printed, torn tail): salvage
+    #    every parseable top-level object inside the "sites" array with a
+    #    STRING-AWARE brace scan (braces inside string values are ignored).
+    sites_salvaged = _salvage_sites_from_text(raw)
+    meta_salvaged: Dict = {}
+    midx = raw.find('"meta"')
+    sidx = raw.find('"sites"')
+    if midx != -1 and sidx != -1 and sidx > midx:
+        seg = raw[midx + 7: sidx].strip().rstrip(",").strip()
+        if seg.endswith("}"):
+            seg = seg[: seg.rfind("}") + 1]
+        elif seg.endswith("]") and not seg.endswith("}"):
+            # meta object ended earlier; cut at its closing brace
+            cut = seg.rfind("}")
+            seg = seg[: cut + 1] if cut != -1 else seg
+        try:
+            meta_salvaged = json.loads(seg)
+        except ValueError:
+            meta_salvaged = {}
+    _write_jsonl_form(str(path), meta_salvaged, sites_salvaged)
+    return len(sites_salvaged)
+
+
+def _salvage_sites_from_text(text: str) -> List[Dict]:
+    """Brace-scan the ``"sites": [ ... ]`` region, string-aware.
+
+    Braces inside string values never affect depth; every top-level
+    ``{...}`` object found is parsed and kept only if it is a dict.
+    """
+    idx = text.find('"sites"')
+    if idx == -1:
+        return []
+    after = text[idx + len('"sites"'):]
+    opener = after.find("[")
+    if opener == -1:
+        return []
+    body = after[opener + 1:]
+    out: List[Dict] = []
+    i, n = 0, len(body)
+    depth = 0
+    in_str = False
+    esc = False
+    start = -1
+    while i < n:
+        c = body[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+            i += 1
+            continue
+        if c == '"':
+            in_str = True
+        elif c == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0 and start != -1:
+                try:
+                    obj = json.loads(body[start: i + 1])
+                    if isinstance(obj, dict):
+                        out.append(obj)
+                except ValueError:
+                    pass
+                start = -1
+            elif depth < 0:
+                break                 # past the array closer — done
+        i += 1
+    return out
+
+
+def count_json_sites(path: str) -> int:
+    """Count intact site objects in a JSON output (either on-disk form).
+
+    Handles both the finalized single-document form (counts ``sites``)
+    and the JSONL-on-disk form (counts object lines, torn line ignored).
+    """
+    p = Path(path)
+    if not p.exists():
+        return 0
+    raw = p.read_text(encoding="utf-8", errors="replace")
+    if not raw.strip():
+        return 0
+    # finalized document form?
+    try:
+        doc = json.loads(raw)
+        if isinstance(doc, dict) and isinstance(doc.get("sites"), list):
+            return sum(1 for s in doc["sites"] if isinstance(s, dict))
+    except ValueError:
+        pass
+    # JSONL-on-disk form (real-"\n" split — see NOTE in finalize_json_file)
+    n = 0
+    for ln in raw.split("\n"):
+        s = ln.strip()
+        if not s or s.startswith('{"meta":'):
+            continue
+        if s.startswith("{") and s.endswith("}"):
+            try:
+                json.loads(s)
+                n += 1
+            except ValueError:
+                pass
+    return n
+
+
+def rebuild_json_from_csv(csv_path: str, json_path: str, meta: Dict) -> int:
+    """Rebuild the JSON output from the (source-of-truth) CSV.
+
+    Returns the number of sites rebuilt.
+    """
+    sites: List[Dict] = []
+    try:
+        with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                sites.append(row_to_json_site(row))
+    except OSError:
+        sites = []
+    doc = {"meta": meta, "sites": sites}
+    tmp = str(json_path) + ".tmp"
+    Path(tmp).parent.mkdir(parents=True, exist_ok=True)
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(doc, f, ensure_ascii=False, indent=1, default=str)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, str(json_path))
+    return len(sites)
+
+
 def load_urls_csv(csv_path: str) -> List[str]:
     """Read a single-column (or url-titled) CSV of URLs."""
     out: List[str] = []
@@ -356,10 +739,16 @@ def load_urls_any(path: str) -> List[str]:
 
 __all__ = [
     "SafeCSVWriter",
+    "SafeJSONWriter",
     "Checkpoint",
     "read_completed_urls",
     "load_urls_txt",
     "load_urls_csv",
     "load_urls_any",
     "detect_url_column",
+    "row_to_json_site",
+    "finalize_json_file",
+    "repair_json_file",
+    "count_json_sites",
+    "rebuild_json_from_csv",
 ]
