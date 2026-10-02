@@ -11,9 +11,28 @@
 
 **Parallel engine · 90-column schema · crash-safe resume · CSV + JSON output**
 
-[**Install**](#-install) · [**Quick Start**](#-quick-start) · [**CLI**](#️-cli-reference) · [**Output**](#-output) · [**Run Summary**](#-the-run-summary) · [**Validation**](#-testing--validation)
-
 </div>
+
+---
+
+## 📖 Table of Contents
+
+- [⚡ What it does](#-what-it-does)
+  - [🛡️ Guarantees](#️-guarantees)
+- [📥 Install](#-install)
+- [🚀 Quick Start](#-quick-start)
+  - [📄 Input files](#-input-files)
+  - [📦 Output files (per run)](#-output-files-per-run)
+- [💥 Crash-safe by design](#-crash-safe-by-design)
+- [⌨️ CLI Reference](#️-cli-reference)
+- [📤 Output](#-output)
+  - [CSV — the 90 columns](#csv--the-90-columns)
+  - [JSON — the same sites, typed](#json--the-same-sites-typed)
+- [📊 The Run Summary](#-the-run-summary)
+- [🧪 Testing & Validation](#-testing--validation)
+- [📁 Project Layout](#-project-layout)
+- [💡 Tips](#-tips)
+- [📄 License](#-license)
 
 ---
 
@@ -28,9 +47,6 @@ Give it **any list of URLs** — a TXT file, a CSV with a website column, or com
 <img src="docs/how-it-works.jpg" alt="Every-Site Scraper architecture: input URLs are queued and scraped by N parallel workers, which feed a single-writer collector that writes a 90-column CSV, typed JSON, and an atomic checkpoint" width="880"/>
 
 </div>
-
-> [!IMPORTANT]
-> **Every row is flushed + fsynced the moment it completes** — `kill -9` loses nothing already written. `--resume` continues exactly where it stopped.
 
 > [!TIP]
 > Memory stays **flat regardless of site count** — rows are streamed to disk and folded into small accumulators. 100 sites or 100,000 sites at the same `--workers`: same RAM.
@@ -71,22 +87,19 @@ python cli.py https://www.python.org https://www.postgresql.org
 
 # 500 sites from a file — 30 workers in parallel, CSV + JSON output
 python cli.py -f sites.csv -o out.csv -w 30 --json
-
-# Run interrupted (Ctrl-C / crash / reboot)? Continue exactly where it stopped:
-python cli.py -f sites.csv -o out.csv -w 30 --json --resume
 ```
 
 > [!TIP]
 > **Your CRM/lead-export CSV works as-is.** The URL column is auto-detected — by header name (`url`, `website`, `site`, `link`, `domain`…) or by scanning which column looks like URLs. Multi-column sheets need zero preprocessing.
 
-**Input files:**
+### 📄 Input files
 
 | Format | How it's read |
 | --- | --- |
 | `urls.txt` | One URL per line, `#` comments ignored |
 | `leads.csv` | URL column **auto-detected** — by header name (`url`, `website`, `site`, `link`, `domain`…) or by scanning which column looks like URLs. Multi-column exports work as-is |
 
-**Output files (per run):**
+### 📦 Output files (per run)
 
 | File | Contents |
 | --- | --- |
@@ -96,15 +109,25 @@ python cli.py -f sites.csv -o out.csv -w 30 --json --resume
 | `out.csv.log.jsonl` | Structured event log (one JSON object per line) |
 | `out.csv.checkpoint.json` | Atomic progress checkpoint |
 
-### 💥 Crash-safe by design
+---
+
+## 💥 Crash-safe by design
 
 A run can be killed at any moment — `Ctrl-C`, `kill -9`, power loss, reboot. Nothing already written is ever lost, and `--resume` picks up exactly where it stopped:
+
+```bash
+# Run interrupted (Ctrl-C / crash / reboot)? Continue exactly where it stopped:
+python cli.py -f sites.csv -o out.csv -w 30 --json --resume
+```
 
 <div align="center">
 
 <img src="docs/crash-safe-resume.jpg" alt="Crash-safe resume flow: workers flush and fsync every completed row, a mid-run SIGKILL leaves the finished rows on disk, and rerunning with --resume reads the done-set, repairs the torn tail and scrapes only the URLs that are still missing" width="880"/>
 
 </div>
+
+> [!IMPORTANT]
+> **Every row is flushed + fsynced the moment it completes** — `kill -9` loses nothing already written. `--resume` continues exactly where it stopped.
 
 ---
 
@@ -231,14 +254,13 @@ python data_quality.py out.csv        # audit any output CSV
 
 **Five live validation rounds, 380+ real websites** — small businesses, government portals, software houses, clinics, restaurants, universities, nonprofits, and global giants. Each round found and fixed real bugs:
 
-```mermaid
-timeline title Hardening history - five live bug-hunt rounds
-    Round 1 : 27 tech sites, baseline extraction
-    Round 2 : 58 sites, visibility bugs fixed (overflow-hidden, custom elements)
-    Round 3 : 60 sites, a11y headings kept, heading-in-li recovered, HTTP-202 honesty
-    Round 4 : 65 sites, JSON-LD-only contacts captured (recursive)
-    Round 5 : 213 sites at 30 workers, parallel engine, SIGKILL+resume proof, Unicode bug fixed, flat memory
-```
+| Round | Sites | What it unlocked |
+| --- | --- | --- |
+| **Round 1** | 27 | tech sites, baseline extraction |
+| **Round 2** | 58 | visibility bugs fixed (`overflow-hidden`, custom elements) |
+| **Round 3** | 60 | a11y headings kept, `heading-in-li` recovered, HTTP-202 honesty |
+| **Round 4** | 65 | JSON-LD-only contacts captured (recursive) |
+| **Round 5** | 213 | 30 workers, parallel engine, `SIGKILL` + resume proof, Unicode bug fixed, flat memory |
 
 ---
 
@@ -263,7 +285,6 @@ every-site-scraping/
 - **Slow sites?** `-t 40`. **Bot defences (403/429)?** Reported per-row — see `top_errors` in the summary.
 - **RAM tight?** Lower `--workers` — memory scales with workers, not sites.
 - **JavaScript-only SPAs** render client-side; `rendering_type` flags them honestly.
-
 
 ## 📄 License
 
