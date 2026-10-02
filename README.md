@@ -23,19 +23,11 @@ Give it **any list of URLs** — a TXT file, a CSV with a website column, or com
 
 **10–40+ workers scrape in parallel.** Every completed site is flushed to disk *immediately* — a crash loses nothing already written, and `--resume` continues exactly where it stopped.
 
-```mermaid
-flowchart LR
-    A["Input<br/>(TXT / CSV / URLs)"] --> Q["Queue"]
-    Q --> W1["Worker 1"]
-    Q --> W2["Worker 2"]
-    Q --> WN["Worker N"]
-    W1 --> C["Collector<br/>(single writer)"]
-    W2 --> C
-    WN --> C
-    C --> CSV["CSV<br/>90 columns"]
-    C --> JSON["JSON<br/>typed sites"]
-    C --> CP["Checkpoint<br/>(atomic)"]
-```
+<div align="center">
+
+<img src="docs/how-it-works.jpg" alt="Every-Site Scraper architecture: input URLs are queued and scraped by N parallel workers, which feed a single-writer collector that writes a 90-column CSV, typed JSON, and an atomic checkpoint" width="880"/>
+
+</div>
 
 > [!IMPORTANT]
 > **Every row is flushed + fsynced the moment it completes** — `kill -9` loses nothing already written. `--resume` continues exactly where it stopped.
@@ -108,23 +100,11 @@ python cli.py -f sites.csv -o out.csv -w 30 --json --resume
 
 A run can be killed at any moment — `Ctrl-C`, `kill -9`, power loss, reboot. Nothing already written is ever lost, and `--resume` picks up exactly where it stopped:
 
-```mermaid
-sequenceDiagram
-    participant R as Runner
-    participant W as Workers (N)
-    participant D as Disk (CSV + JSON)
+<div align="center">
 
-    R->>W: distribute URLs
-    W->>D: row complete, flush + fsync
-    W->>D: row complete, flush + fsync
-    Note over W,D: SIGKILL - mid-run crash
-    Note over D: 81 rows already on disk
-    Note over R: rerun with --resume
-    R->>D: read done-set, repair torn tail
-    R->>W: only the remaining URLs
-    W->>D: append + fsync each row
-    Note over D: all rows, zero loss
-```
+<img src="docs/crash-safe-resume.jpg" alt="Crash-safe resume flow: workers flush and fsync every completed row, a mid-run SIGKILL leaves the finished rows on disk, and rerunning with --resume reads the done-set, repairs the torn tail and scrapes only the URLs that are still missing" width="880"/>
+
+</div>
 
 ---
 
