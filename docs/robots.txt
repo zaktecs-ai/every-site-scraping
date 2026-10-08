@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://zaktecs-ai.github.io/every-site-scraping/sitemap.xml
