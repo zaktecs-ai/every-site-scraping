@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bulk Web Scraper in Python — Parallel URL to CSV Extraction | Every-Site Scraping</title>
+<meta name="description" content="Free parallel Python web scraper for bulk website data extraction. Turn any list of URLs into one 90-column CSV row per site — SEO metadata, Open Graph, contact emails, social profiles, tech stack. Crash-safe resume, JSON output, MIT licensed.">
+<meta name="keywords" content="bulk web scraping, python web scraper, parallel web scraper, website data extraction, csv web scraping, seo metadata scraper, contact scraper, crash-safe scraping, url to csv scraper, b2b website scraper">
+<link rel="canonical" href="https://zaktecs-ai.github.io/every-site-scraping/">
+<meta name="robots" content="index, follow">
+<meta name="author" content="Muhammad Zakria">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Every-Site Scraping — Parallel Python Web Scraper for Bulk URL Extraction">
+<meta property="og:description" content="Turn any list of URLs into one 90-column CSV row per site — SEO, Open Graph, contacts, socials, JSON-LD, tech stack. Crash-safe resume, JSON output.">
+<meta property="og:url" content="https://zaktecs-ai.github.io/every-site-scraping/">
+<meta property="og:image" content="https://zaktecs-ai.github.io/every-site-scraping/banner.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Every-Site Scraping — Parallel Python Web Scraper">
+<meta name="twitter:description" content="Bulk URL to CSV extraction: 90 columns per site, crash-safe resume, JSON output, MIT licensed.">
+<meta name="twitter:image" content="https://zaktecs-ai.github.io/every-site-scraping/banner.jpg">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "name": "Every-Site Scraping",
+      "alternateName": "every-site-scraping",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "Linux, macOS, Windows",
+      "programmingLanguage": "Python",
+      "description": "Parallel Python web scraper that turns any list of URLs into one 90-column CSV row per site — SEO metadata, Open Graph, contact details, social profiles, JSON-LD organization data and tech stack, with crash-safe resume and typed JSON output.",
+      "url": "https://zaktecs-ai.github.io/every-site-scraping/",
+      "codeRepository": "https://github.com/zaktecs-ai/every-site-scraping",
+      "license": "https://opensource.org/licenses/MIT",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "author": { "@type": "Person", "name": "Muhammad Zakria" }
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What is the best way to extract SEO metadata from a large list of URLs?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Use a parallel bulk scraper. Every-Site Scraping reads a TXT or CSV list of URLs and writes one row per site with 90 columns covering SEO fields (title, meta description, canonical, robots meta, language, favicon), Open Graph and Twitter cards, headings, word count, links, contacts and tech stack. Run it with 10-40+ workers to scrape hundreds of sites per minute."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How do I scrape a list of websites into a CSV file with Python?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Install with pip install -r requirements.txt, then run: python cli.py -f sites.csv -o out.csv -w 30 --json. The URL column in your input CSV is auto-detected by header name or by content, so CRM and lead-export files work without preprocessing. Output is a 90-column CSV plus a typed JSON file."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "What happens if the scraper crashes in the middle of a run?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Nothing already written is lost. Every completed row is flushed and fsynced to disk immediately, so a crash or kill -9 only loses the sites currently in flight. Re-running with --resume skips every URL already in the output CSV, repairs a torn trailing row, and continues with the remaining URLs."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can it extract contact emails and phone numbers from websites?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. Each row includes contact_emails and contact_phones harvested from visible text, mailto and tel links, and JSON-LD organization data, plus social profile links for Facebook, LinkedIn, Instagram, YouTube and GitHub. This makes the tool usable for website enrichment and B2B lead data."}
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Does it cost anything or require an API key?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "No. Every-Site Scraping is MIT licensed open source and runs locally with only requests, BeautifulSoup and lxml. There is no API key, no hosted service and no per-site cost. Respect each site's robots.txt and terms of service when scraping."
+          }
+        }
+      ]
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Every-Site Scraping", "item": "https://zaktecs-ai.github.io/every-site-scraping/" }
+      ]
+    }
+  ]
+}
+</script>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --line:#30363d; --fg:#e6edf3; --muted:#9198a1; --accent:#58a6ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  .wrap { max-width:900px; margin:0 auto; padding:48px 22px 80px; }
+  header img { width:100%; border-radius:12px; border:1px solid var(--line); }
+  h1 { font-size:2rem; line-height:1.25; margin:32px 0 8px; }
+  h2 { font-size:1.3rem; margin:40px 0 12px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+  h3 { font-size:1.05rem; margin:24px 0 6px; }
+  p, li { color:#c9d1d9; }
+  .lead { font-size:1.1rem; color:var(--muted); }
+  .cta { display:inline-block; margin:14px 10px 4px 0; padding:11px 20px; border-radius:8px; background:var(--accent); color:#0d1117; font-weight:600; text-decoration:none; }
+  .cta.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  code, pre { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 16px; overflow-x:auto; font-size:.9rem; }
+  code { background:var(--panel); padding:2px 6px; border-radius:5px; font-size:.88em; }
+  pre code { background:none; padding:0; }
+  table { width:100%; border-collapse:collapse; margin:14px 0; font-size:.94rem; }
+  th, td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  details { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 16px; margin:14px 0; }
+  summary { cursor:pointer; font-weight:600; }
+  .stats { display:flex; flex-wrap:wrap; gap:12px; margin:18px 0; }
+  .stat { flex:1 1 150px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
+  .stat b { display:block; font-size:1.5rem; color:var(--accent); }
+  .stat span { color:var(--muted); font-size:.86rem; }
+  footer { margin-top:56px; padding-top:18px; border-top:1px solid var(--line); color:var(--muted); font-size:.9rem; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <img src="banner.jpg" alt="Every-Site Scraping — parallel Python web scraper that converts a list of URLs into a 90-column CSV">
+</header>
+
+<h1>Bulk Web Scraper in Python — Parallel URL to CSV Extraction</h1>
+<p class="lead">Turn any list of URLs into one <strong>90-column CSV row per site</strong>: SEO metadata, Open Graph, Twitter cards, contact emails, phone numbers, social profiles, JSON-LD organization data and detected tech stack. Crash-safe resume, typed JSON output, flat memory at any site count.</p>
+
+<a class="cta" href="https://github.com/zaktecs-ai/every-site-scraping">View on GitHub</a>
+<a class="cta ghost" href="#quick-start">Quick start</a>
+
+<div class="stats">
+  <div class="stat"><b>90</b><span>columns per site</span></div>
+  <div class="stat"><b>10–40+</b><span>parallel workers</span></div>
+  <div class="stat"><b>213</b><span>sites in 84s (live run)</span></div>
+  <div class="stat"><b>MIT</b><span>free &amp; open source</span></div>
+</div>
+
+<h2 id="what-it-does">What Every-Site Scraping extracts</h2>
+<p>Feed it a TXT list, a CSV with a website column (URL column auto-detected), or pass URLs on the command line. Every site gets exactly one row across a fixed schema:</p>
+<table>
+  <tr><th>Group</th><th>Fields</th></tr>
+  <tr><td>Identity &amp; request</td><td>final URL, HTTP status, page title, domain, site name</td></tr>
+  <tr><td>Meta &amp; Open Graph</td><td>meta description, keywords, OG title/description/image/type/locale</td></tr>
+  <tr><td>Twitter cards</td><td>card type, title, description, image, handle</td></tr>
+  <tr><td>SEO</td><td>canonical URL, robots meta, viewport, language, charset, favicon, generator</td></tr>
+  <tr><td>Content</td><td>H1 text and heading counts, word count, character count, rendering type</td></tr>
+  <tr><td>Links &amp; assets</td><td>internal/external/total links, image, document, media, script and stylesheet URLs</td></tr>
+  <tr><td>Social &amp; contact</td><td>Facebook, LinkedIn, Instagram, YouTube, GitHub links, contact emails, phone numbers</td></tr>
+  <tr><td>Organization</td><td>org name, description, logo, URL, founding date, location, phone, JSON-LD types</td></tr>
+  <tr><td>Tech &amp; weight</td><td>HTTPS, detected technologies with evidence, page size, response time</td></tr>
+</table>
+
+<h2 id="why">Why it is built this way</h2>
+<ul>
+  <li><strong>Every row is fsynced as it completes</strong> — a crash or <code>kill -9</code> loses nothing already written, and <code>--resume</code> continues where it stopped.</li>
+  <li><strong>Fixed schema, self-verifying</strong> — count columns always equal their list lengths, and a malformed row raises instead of shifting columns.</li>
+  <li><strong>Flat memory</strong> — RAM scales with <code>--workers</code>, not with site count: 100 sites or 100,000 sites use the same amount.</li>
+  <li><strong>Per-worker proof</strong> — the run summary reports sites handled by each worker, so "all N workers were active" is verified, not claimed.</li>
+  <li><strong>Honest failure reporting</strong> — bot defences (403/429/502) are recorded per row and summarised, never silently swallowed.</li>
+</ul>
+
+<h2 id="install">Install</h2>
+<pre><code>git clone https://github.com/zaktecs-ai/every-site-scraping.git
+cd every-site-scraping
+pip install -r requirements.txt</code></pre>
+<p>Python 3.8+ · dependencies: <code>requests</code>, <code>beautifulsoup4</code>, <code>lxml</code>. No API key, no hosted service.</p>
+
+<h2 id="quick-start">Quick start</h2>
+<pre><code># A few sites (10 workers by default)
+python cli.py https://www.python.org https://www.postgresql.org
+
+# 500 sites from a file — 30 workers, CSV + JSON output
+python cli.py -f sites.csv -o out.csv -w 30 --json
+
+# Continue an interrupted run exactly where it stopped
+python cli.py -f sites.csv -o out.csv -w 30 --json --resume</code></pre>
+<p>Outputs per run: <code>out.csv</code> (90 columns, Excel-ready), <code>out.csv.json</code> (typed JSON), <code>out.csv.summary.json</code> (run report) and a structured JSONL log.</p>
+
+<details>
+<summary>CLI reference</summary>
+<pre><code>python cli.py [URLS...] [options]
+
+  -f, --file URLS_FILE   Input file: .txt (one URL/line) or .csv (URL column auto-detected)
+  -o, --output CSV_PATH  Output CSV (default: output.csv)
+  -w, --workers N        Parallel workers (default: 10) — all N scrape concurrently
+  -t, --timeout SECS     Per-request timeout (default: 20)
+      --json [PATH]      Also write structured JSON (default: &lt;output&gt;.json)
+      --resume           Continue a previous run — skip URLs already in the CSV
+      --overwrite        Start fresh even if the output CSV exists
+      --user-agent UA    Override the default Chrome User-Agent
+      --quiet            No per-site progress lines
+      --schema           Print the 90-column schema and exit</code></pre>
+</details>
+
+<h2>FAQ</h2>
+<h3>What is the best way to extract SEO metadata from a large list of URLs?</h3>
+<p>Use a parallel bulk scraper. Every-Site Scraping reads a TXT or CSV list and writes one row per site with 90 columns covering SEO fields (title, meta description, canonical, robots meta, language, favicon), Open Graph and Twitter cards, headings, word count, links, contacts and tech stack — hundreds of sites per minute with 10–40+ workers.</p>
+
+<h3>How do I scrape a list of websites into a CSV file with Python?</h3>
+<p>Install the requirements, then run <code>python cli.py -f sites.csv -o out.csv -w 30 --json</code>. The URL column in your input CSV is auto-detected by header name or by content, so CRM and lead-export files work without preprocessing.</p>
+
+<h3>What happens if the scraper crashes in the middle of a run?</h3>
+<p>Nothing already written is lost. Each completed row is flushed and fsynced immediately, so a crash only loses sites in flight. Re-run with <code>--resume</code> to skip completed URLs and continue with the rest.</p>
+
+<h3>Can it extract contact emails and phone numbers from websites?</h3>
+<p>Yes — <code>contact_emails</code> and <code>contact_phones</code> are harvested from visible text, mailto/tel links and JSON-LD organization data, alongside social profile links. That makes the output usable for website enrichment and B2B lead data.</p>
+
+<h3>Does it cost anything or require an API key?</h3>
+<p>No. It is MIT licensed open source and runs locally with <code>requests</code>, <code>BeautifulSoup</code> and <code>lxml</code>. No key, no hosted service, no per-site cost. Respect each site's <code>robots.txt</code> and terms of service.</p>
+
+<h2>Validation</h2>
+<p>68 unit tests plus five live validation rounds across 380+ real websites — small businesses, government portals, universities, clinics and global sites. The largest round scraped 213 sites with 30 workers in 84.1 seconds (2.53 sites/s) on a 2-core machine, and survived a mid-run <code>SIGKILL</code> with zero row loss.</p>
+
+<footer>
+  <p><strong>Every-Site Scraping</strong> — built for bulk, survives crashes, never loses a row.</p>
+  <p><a href="https://github.com/zaktecs-ai/every-site-scraping">GitHub repository</a> · MIT License · Documentation last updated 2026-10-08</p>
+</footer>
+</div>
+</body>
+</html>

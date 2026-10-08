@@ -1,0 +1,61 @@
+# Every-Site Scraping
+
+> Parallel Python web scraper that turns any list of URLs into one 90-column CSV row per site — SEO metadata, Open Graph, contact details, social profiles, JSON-LD, and tech stack. Crash-safe resume, typed JSON output, flat memory at any site count.
+
+Every-Site Scraping is a Python 3.8+ command-line tool for **bulk website data extraction**. It accepts an arbitrary list of URLs (arguments, a `.txt` file, or a CSV/lead-export with an auto-detected website column) and scrapes them in parallel with 10–40+ workers. Each site becomes exactly one row across a fixed 90-column schema.
+
+## What it extracts
+
+- **Identity & request**: final URL, HTTP status, page title, domain, site name
+- **Meta & Open Graph**: meta description, keywords, OG title/description/image/type/locale
+- **Twitter cards**: card type, title, description, image, handle
+- **SEO**: canonical URL, robots meta, viewport, language, charset, favicon, generator
+- **Content**: H1 text and heading counts, word count, character count, rendering type
+- **Links & assets**: internal/external/total links, image, document, media, script and stylesheet URLs (absolute, deduped, sorted)
+- **Social & contact**: social profile links plus contact emails and phone numbers (visible text, mailto/tel, and JSON-LD)
+- **Organization**: org name, description, logo, URL, founding date, location, phone, JSON-LD types
+- **Tech & weight**: HTTPS, detected technologies with evidence, page size in bytes, response time in ms
+
+## Key capabilities
+
+- **Parallel engine** — N workers pull from one queue; per-worker counts appear in the run summary (verified, not claimed)
+- **Crash-safe resume** — every completed row is flushed and fsynced immediately; `--resume` continues exactly where a killed run stopped
+- **Fixed 90-column schema** — `csv.DictWriter(extrasaction="raise")` makes a malformed row raise instead of shifting columns
+- **Typed JSON output** — the same data as real arrays, integers, and booleans
+- **Flat memory** — RAM scales with `--workers`, not with the number of sites
+
+## Install
+
+```bash
+git clone https://github.com/zaktecs-ai/every-site-scraping.git
+cd every-site-scraping
+pip install -r requirements.txt
+```
+
+Dependencies: `requests`, `beautifulsoup4`, `lxml`. Python 3.8+.
+
+## Quick start
+
+```bash
+# A few sites (10 workers by default)
+python cli.py https://www.python.org https://www.postgresql.org
+
+# 500 sites from a file — 30 workers, CSV + JSON output
+python cli.py -f sites.csv -o out.csv -w 30 --json
+
+# Continue an interrupted run
+python cli.py -f sites.csv -o out.csv -w 30 --json --resume
+```
+
+## Validation
+
+Covered by 68 unit tests and five live validation rounds across 380+ real websites (small businesses, government portals, universities, clinics, software houses, and global sites). The largest round scraped 213 sites with 30 workers in 84.1 seconds (2.53 sites/s) on a 2-core machine.
+
+## License
+
+MIT.
+
+## Links
+
+- Source code: https://github.com/zaktecs-ai/every-site-scraping
+- Documentation: https://zaktecs-ai.github.io/every-site-scraping/

@@ -15,6 +15,16 @@
 
 ---
 
+# Every-Site Scraping — Parallel Python Web Scraper for Bulk URL-to-CSV Extraction
+
+**Scrape any list of URLs into one 90-column CSV row per site — SEO metadata, Open Graph, contact details, social profiles, JSON-LD, and tech stack. Crash-safe resume, typed JSON, flat memory.**
+
+Every-Site Scraping is a free, MIT-licensed Python CLI for **bulk website data extraction**. It reads URLs from the command line, a `.txt` file, or a CSV/lead-export with an **auto-detected website column**, and scrapes them in parallel with 10–40+ workers. Each site becomes exactly one row across a fixed 90-column schema covering SEO fields, Open Graph and Twitter cards, headings and word count, every link and asset URL, social profiles, **contact emails and phone numbers**, JSON-LD organization data, and detected tech stack.
+
+**Keywords:** python web scraper · bulk web scraping · parallel scraper · website data extraction · URL to CSV scraper · SEO metadata scraper · contact scraper · crash-safe scraping · B2B website scraper.
+
+---
+
 ## 📖 Table of Contents
 
 - [⚡ What it does](#-what-it-does)
@@ -32,6 +42,7 @@
 - [🧪 Testing & Validation](#-testing--validation)
 - [📁 Project Layout](#-project-layout)
 - [💡 Tips](#-tips)
+- [❓ FAQ](#-faq)
 - [📄 License](#-license)
 
 ---
@@ -286,6 +297,34 @@ every-site-scraping/
 - **RAM tight?** Lower `--workers` — memory scales with workers, not sites.
 - **JavaScript-only SPAs** render client-side; `rendering_type` flags them honestly.
 
+---
+
+## ❓ FAQ
+
+**What is the best way to extract SEO metadata from a large list of URLs?**
+Use a parallel bulk scraper rather than visiting sites one at a time. Every-Site Scraping reads a TXT or CSV list and writes one row per site with 90 columns covering SEO fields (title, meta description, canonical URL, robots meta, language, charset, favicon), Open Graph and Twitter cards, headings, word count, all links and asset URLs, contacts and tech stack. With 10–40+ workers it processes hundreds of sites per minute.
+
+**How do I scrape a list of websites into a CSV file with Python?**
+```bash
+pip install -r requirements.txt
+python cli.py -f sites.csv -o out.csv -w 30 --json
+```
+The URL column in your input CSV is auto-detected — by header name (`url`, `website`, `site`, `link`, `domain`…) or by scanning which column contains URLs — so CRM exports and lead lists work with zero preprocessing. The output is a 90-column CSV plus a typed JSON file.
+
+**What happens if the scraper crashes in the middle of a run?**
+Nothing already written is lost. Every completed row is flushed and fsynced to disk the moment it finishes, so a crash, `Ctrl-C` or `kill -9` only loses the sites currently in flight. Re-running with `--resume` skips every URL already present in the output CSV, repairs a torn trailing row, and continues with the remaining URLs.
+
+**Can it extract contact emails and phone numbers from websites?**
+Yes. Each row includes `contact_emails` and `contact_phones` harvested from visible page text, `mailto:`/`tel:` links, and JSON-LD organization data, plus first-class social profile columns (Facebook, LinkedIn, Instagram, YouTube, GitHub). That makes the CSV directly usable for website enrichment and B2B lead data.
+
+**Does it cost anything or require an API key?**
+No. Every-Site Scraping is MIT-licensed open source and runs entirely locally with `requests`, `BeautifulSoup` and `lxml`. There is no API key, no hosted service and no per-site cost. Always respect each site's `robots.txt` and terms of service.
+
+**How many sites can it handle, and does memory grow with site count?**
+Memory stays flat: rows are streamed to disk and folded into small accumulators, so 100 sites or 100,000 sites use the same RAM at the same `--workers`. The largest live validation round scraped 213 sites with 30 workers in 84.1 seconds on a 2-core machine.
+
+---
+
 ## 📄 License
 
 MIT — free to use, modify, and ship. Scraped data belongs to you; respect each site's `robots.txt` and terms.
@@ -295,5 +334,7 @@ MIT — free to use, modify, and ship. Scraped data belongs to you; respect each
 <div align="center">
 
 **Built for bulk. Survives crashes. Never loses a row.**
+
+**Docs:** https://zaktecs-ai.github.io/every-site-scraping/ · [GitHub](https://github.com/zaktecs-ai/every-site-scraping) · MIT
 
 </div>
