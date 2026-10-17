@@ -25,9 +25,9 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-import checkpoint as cp
-from runlog import RunLogger, SummaryBuilder
-from scraper import SCHEMA
+from everysite import checkpoint as cp
+from everysite.runlog import RunLogger, SummaryBuilder
+from everysite.scraper import SCHEMA
 
 
 def _row(url: str, status: str = "ok") -> dict:
@@ -377,7 +377,7 @@ class TestRunnerJSONEndToEnd(unittest.TestCase):
     """runner.run(json_output=...) writes both CSV and a valid JSON doc."""
 
     def test_json_written_and_matches_csv(self):
-        from runner import run
+        from everysite.runner import run
         with tempfile.TemporaryDirectory() as tmp:
             out = os.path.join(tmp, "out.csv")
             jp = os.path.join(tmp, "out.json")
@@ -443,7 +443,7 @@ class TestRunnerEndToEnd(unittest.TestCase):
         return [f"{base}/{kind}/{i}" for i in range(n)]
 
     def test_parallel_run_all_workers_active(self):
-        from runner import run
+        from everysite.runner import run
         with tempfile.TemporaryDirectory() as tmp:
             out = os.path.join(tmp, "out.csv")
             n, w = 40, 8
@@ -475,7 +475,7 @@ class TestRunnerEndToEnd(unittest.TestCase):
                 self.assertTrue(os.path.exists(os.path.join(tmp, extra)))
 
     def test_single_worker_still_correct(self):
-        from runner import run
+        from everysite.runner import run
         with tempfile.TemporaryDirectory() as tmp:
             out = os.path.join(tmp, "out.csv")
             result = run(self._urls(6), output=out, workers=1, quiet=True,
@@ -487,7 +487,7 @@ class TestRunnerEndToEnd(unittest.TestCase):
                 result["summary"]["workers"]["list"][0]["sites_done"], 6)
 
     def test_resume_skips_done_urls(self):
-        from runner import run
+        from everysite.runner import run
         with tempfile.TemporaryDirectory() as tmp:
             out = os.path.join(tmp, "out.csv")
             urls = self._urls(10)
@@ -508,7 +508,7 @@ class TestRunnerEndToEnd(unittest.TestCase):
             self.assertEqual(got, set(urls))
 
     def test_parallel_faster_than_serial(self):
-        from runner import run
+        from everysite.runner import run
         with tempfile.TemporaryDirectory() as tmp:
             # 12 slow pages (300ms each) — serial >= 3.6s, parallel(6) ~0.6s
             out = os.path.join(tmp, "out.csv")
@@ -521,7 +521,7 @@ class TestRunnerEndToEnd(unittest.TestCase):
                             "parallel engine should beat serial time here")
 
     def test_worker_stats_no_double_count(self):
-        from runner import run
+        from everysite.runner import run
         with tempfile.TemporaryDirectory() as tmp:
             out = os.path.join(tmp, "out.csv")
             result = run(self._urls(20), output=out, workers=4, quiet=True,

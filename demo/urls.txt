@@ -1,0 +1,5 @@
+https://example.com
+https://www.iana.org
+https://www.python.org
+https://httpbin.org
+https://quotes.toscrape.com

@@ -46,11 +46,13 @@ import time
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-from multiscrape import _normalize_url, fetch_page, row_from_fetch
-from runlog import ResourceMonitor, RunLogger, SummaryBuilder
-from scraper import SCHEMA
+from .netlayer import Fetcher, ProxyPool
+from .runlog import ResourceMonitor, RunLogger, SummaryBuilder
+from .scraper import SCHEMA
+from .multiscrape import row_from_fetch
 
-import checkpoint as cp
+from . import checkpoint as cp
+from . import sinks as sink_mod
 
 _DONE = object()          # poison pill: one per worker ends the pool
 _CP_EVERY = 25            # checkpoint cadence (rows)
@@ -102,31 +104,60 @@ def run(
     json_output: Optional[str] = None,
     quiet: bool = False,
     progress: Optional[Callable[[int, int, str], None]] = None,
+    # ---- v3 knobs (all optional; omit for v2 behaviour) --------------------
+    output_format: Optional[str] = None,
+    retries: int = 2,
+    delay: float = 0.0,
+    proxies: Optional[List[str]] = None,
+    proxy_file: Optional[str] = None,
+    respect_robots: bool = True,
+    verify_tls: bool = True,
+    max_response_bytes: int = 4_194_304,
 ) -> Dict:
     """Scrape ``urls`` with ``workers`` parallel threads.
 
     Returns a result dict: total, ok, rows, elapsed_s, workers, summary.
     ``progress(n_done, n_total, status)`` is called from the collector
-    after every row lands in the CSV.
-    When ``json_output`` is set, a typed, structured JSON file is written
-    alongside the CSV (same rows, real arrays/ints/bools).
+    after every row lands in the output.
+
+    ``output_format`` selects the sink: ``csv`` (default), ``json``,
+    ``jsonl`` or ``sqlite``. When omitted it is inferred from the output
+    path's extension, so ``-o out.sqlite`` just works.
+    When ``json_output`` is set, a typed JSON file is written alongside.
     """
     t_start = time.time()
     run_id = time.strftime("%Y%m%d-%H%M%S", time.gmtime(t_start))
+
+    fmt = (output_format or sink_mod.detect_format(output)).lower()
+    if fmt not in sink_mod.SUPPORTED_FORMATS:
+        raise ValueError(f"unsupported output format: {fmt}")
+
+    # ---- proxy pool -------------------------------------------------------
+    pool: Optional[ProxyPool] = None
+    if proxy_file:
+        pool = ProxyPool.from_file(proxy_file)
+    elif proxies:
+        pool = ProxyPool(proxies)
+
+    fetcher = Fetcher(
+        timeout=timeout, retries=retries, user_agent=user_agent,
+        delay=delay, proxy_pool=pool, respect_robots=respect_robots,
+        verify_tls=verify_tls, max_response_bytes=max_response_bytes,
+    )
 
     # ---- input normalisation (dedupe, keep order) --------------------------
     all_urls: List[str] = []
     seen: set = set()
     for raw in urls:
-        u = _normalize_url(str(raw or ""))
+        u = sink_mod.normalize_url(str(raw or ""))
         if u and u not in seen:
             seen.add(u)
             all_urls.append(u)
 
-    # ---- resume: done-set from the ACTUAL CSV ------------------------------
+    # ---- resume: done-set from the ACTUAL output ---------------------------
     done_before: set = set()
     if resume and Path(output).exists():
-        done_before = cp.read_completed_urls(output)
+        done_before = sink_mod.read_done_urls(output, fmt)
     skipped = [u for u in all_urls if u in done_before]
     pending = [u for u in all_urls if u not in done_before]
 
@@ -153,7 +184,10 @@ def run(
     out_p = Path(output)
     fresh = (not resume) or (not out_p.exists()) or (out_p.stat().st_size == 0)
 
-    writer = cp.SafeCSVWriter(str(output), write_header=fresh)
+    writer = sink_mod.make_sink(fmt, str(output), schema=SCHEMA,
+                                meta={"run_id": run_id, "workers": workers,
+                                      "schema_columns": len(SCHEMA)},
+                                write_header=fresh)
     checkpointer = cp.Checkpoint(checkpoint_path or (str(output) + ".checkpoint.json"))
     if resume:
         checkpointer.load()
@@ -196,6 +230,7 @@ def run(
     out_q: "queue.Queue" = queue.Queue()
     workers_list = [_WorkerStats(i) for i in range(1, workers + 1)]
     fatal: List[str] = []
+    write_errors: List[str] = []
     _fatal_lock = threading.Lock()
 
     n_total = len(pending)
@@ -233,9 +268,19 @@ def run(
             w = workers_list[wid - 1]
             if kind == "row":
                 row, ms_active, n_bytes = payload
-                writer.write_row(row)            # flush + fsync EVERY row
-                if json_writer is not None:
-                    json_writer.write_row(row)   # typed, flush + fsync too
+                # A sink failure must never kill the collector: if the
+                # collector dies, nothing drains out_q and the whole run hangs
+                # (seen live with a thread-affinity error). Record and continue.
+                try:
+                    writer.write_row(row)        # flush + fsync EVERY row
+                    if json_writer is not None:
+                        json_writer.write_row(row)
+                except Exception as e:
+                    with _fatal_lock:
+                        write_errors.append(f"{type(e).__name__}: {e}")
+                    w.errors.append(f"write: {type(e).__name__}: {e}")
+                    out_q.task_done()
+                    continue
                 n_done += 1
                 # -- fold into the streaming aggregate (no row retained) --
                 agg["n_rows"] += 1
@@ -292,7 +337,7 @@ def run(
                     return
                 t0 = time.monotonic()
                 try:
-                    fetch = fetch_page(url, timeout=timeout, user_agent=user_agent)
+                    fetch = fetcher.fetch(url)
                     row = row_from_fetch(fetch)
                     ms = int((time.monotonic() - t0) * 1000)
                     out_q.put(("row", w.id, (row, ms, len(fetch.get("html") or ""))))
@@ -392,9 +437,22 @@ def run(
         "sites_failed": sum(w.failed for w in workers_list),
         "internal_errors": sum(len(w.errors) for w in workers_list),
         "fatal_errors": fatal or None,
+        "write_errors": write_errors[:20] or None,
         "list": [w.as_dict() for w in workers_list],
     })
-    sb.set("retries_needed", 0)
+    sb.set("retries_needed", fetcher.retries_used)
+    sb.set("output_format", fmt)
+    sb.set("network", {
+        "retries_max": retries,
+        "retries_used": fetcher.retries_used,
+        "delay_seconds": delay,
+        "respect_robots": respect_robots,
+        "verify_tls": verify_tls,
+        "max_response_bytes": max_response_bytes,
+        "proxies": (pool.stats() if pool else None),
+        "robots_blocked": len(fetcher.robots_blocked),
+        "robots_blocked_sample": fetcher.robots_blocked[:20],
+    })
     sb.set("resume_events", len(skipped))
     sb.set("checkpoint", {
         "path": checkpointer.path,

@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Bulk Web Scraper in Python — Parallel URL to CSV Extraction | Every-Site Scraping</title>
-<meta name="description" content="Free parallel Python web scraper for bulk website data extraction. Turn any list of URLs into one 90-column CSV row per site — SEO metadata, Open Graph, contact emails, social profiles, tech stack. Crash-safe resume, JSON output, MIT licensed.">
+<meta name="description" content="Free parallel Python web scraper and crawler for bulk website data extraction. Turn any list of URLs — or one seed site — into a 90-column dataset per page: SEO metadata, Open Graph, contacts, social profiles, tech stack. CSV, JSON, JSONL or SQLite. Crash-safe resume, robots-aware, MIT licensed.">
 <meta name="keywords" content="bulk web scraping, python web scraper, parallel web scraper, website data extraction, csv web scraping, seo metadata scraper, contact scraper, crash-safe scraping, url to csv scraper, b2b website scraper">
 <link rel="canonical" href="https://zaktecs-ai.github.io/every-site-scraping/">
 <meta name="robots" content="index, follow">
-<meta name="author" content="Muhammad Zakria">
+<meta name="author" content="Every-Site Scraping contributors">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Every-Site Scraping — Parallel Python Web Scraper for Bulk URL Extraction">
-<meta property="og:description" content="Turn any list of URLs into one 90-column CSV row per site — SEO, Open Graph, contacts, socials, JSON-LD, tech stack. Crash-safe resume, JSON output.">
+<meta property="og:description" content="Scrape a list or crawl a whole site into a 90-column dataset per page — SEO, Open Graph, contacts, socials, tech stack. CSV/JSON/JSONL/SQLite, crash-safe resume.">
 <meta property="og:url" content="https://zaktecs-ai.github.io/every-site-scraping/">
 <meta property="og:image" content="https://zaktecs-ai.github.io/every-site-scraping/banner.jpg">
 <meta name="twitter:card" content="summary_large_image">
@@ -29,12 +29,12 @@
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "Linux, macOS, Windows",
       "programmingLanguage": "Python",
-      "description": "Parallel Python web scraper that turns any list of URLs into one 90-column CSV row per site — SEO metadata, Open Graph, contact details, social profiles, JSON-LD organization data and tech stack, with crash-safe resume and typed JSON output.",
+      "description": "Parallel Python web scraper and crawler that turns any list of URLs — or a seed site — into one 90-column row per page: SEO metadata, Open Graph, contact details, social profiles, JSON-LD organization data and tech stack, with crash-safe resume, robots-aware crawling and CSV/JSON/JSONL/SQLite output.",
       "url": "https://zaktecs-ai.github.io/every-site-scraping/",
       "codeRepository": "https://github.com/zaktecs-ai/every-site-scraping",
       "license": "https://opensource.org/licenses/MIT",
       "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-      "author": { "@type": "Person", "name": "Muhammad Zakria" }
+      "author": { "@type": "Organization", "name": "Every-Site Scraping contributors" }
     },
     {
       "@type": "FAQPage",
@@ -52,7 +52,7 @@
           "name": "How do I scrape a list of websites into a CSV file with Python?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Install with pip install -r requirements.txt, then run: python cli.py -f sites.csv -o out.csv -w 30 --json. The URL column in your input CSV is auto-detected by header name or by content, so CRM and lead-export files work without preprocessing. Output is a 90-column CSV plus a typed JSON file."
+            "text": "Install with pip install -r requirements.txt, then run: python -m everysite scrape -f sites.csv -o out.csv -w 30. To crawl a whole site instead, run: python -m everysite crawl https://example.com -d 2 -n 500 -o site.csv. The URL column in your input CSV is auto-detected by header name or by content, so CRM and lead-export files work without preprocessing. Output is 90 columns per page as CSV, JSON, JSONL or SQLite."
           }
         },
         {
@@ -127,7 +127,7 @@
 </header>
 
 <h1>Bulk Web Scraper in Python — Parallel URL to CSV Extraction</h1>
-<p class="lead">Turn any list of URLs into one <strong>90-column CSV row per site</strong>: SEO metadata, Open Graph, Twitter cards, contact emails, phone numbers, social profiles, JSON-LD organization data and detected tech stack. Crash-safe resume, typed JSON output, flat memory at any site count.</p>
+<p class="lead">Scrape a list, or <strong>crawl a whole site</strong>. Either way: one <strong>90-column row per page</strong> — SEO metadata, Open Graph, Twitter cards, contact emails, phone numbers, social profiles, JSON-LD organization data and detected tech stack. Output as CSV, typed JSON, append-only JSONL or queryable SQLite. Robots-aware, crash-safe resume, flat memory at any site count.</p>
 
 <a class="cta" href="https://github.com/zaktecs-ai/every-site-scraping">View on GitHub</a>
 <a class="cta ghost" href="#quick-start">Quick start</a>
@@ -171,29 +171,32 @@ pip install -r requirements.txt</code></pre>
 
 <h2 id="quick-start">Quick start</h2>
 <pre><code># A few sites (10 workers by default)
-python cli.py https://www.python.org https://www.postgresql.org
+python -m everysite https://www.python.org https://www.postgresql.org
 
 # 500 sites from a file — 30 workers, CSV + JSON output
-python cli.py -f sites.csv -o out.csv -w 30 --json
+python -m everysite scrape -f sites.csv -o out.csv -w 30
 
 # Continue an interrupted run exactly where it stopped
-python cli.py -f sites.csv -o out.csv -w 30 --json --resume</code></pre>
+python -m everysite scrape -f sites.csv -o out.csv -w 30 --resume</code></pre>
 <p>Outputs per run: <code>out.csv</code> (90 columns, Excel-ready), <code>out.csv.json</code> (typed JSON), <code>out.csv.summary.json</code> (run report) and a structured JSONL log.</p>
 
 <details>
 <summary>CLI reference</summary>
-<pre><code>python cli.py [URLS...] [options]
+<pre><code>every-site-scraping &lt;COMMAND&gt; [options]
 
-  -f, --file URLS_FILE   Input file: .txt (one URL/line) or .csv (URL column auto-detected)
-  -o, --output CSV_PATH  Output CSV (default: output.csv)
-  -w, --workers N        Parallel workers (default: 10) — all N scrape concurrently
-  -t, --timeout SECS     Per-request timeout (default: 20)
-      --json [PATH]      Also write structured JSON (default: &lt;output&gt;.json)
-      --resume           Continue a previous run — skip URLs already in the CSV
-      --overwrite        Start fresh even if the output CSV exists
-      --user-agent UA    Override the default Chrome User-Agent
-      --quiet            No per-site progress lines
-      --schema           Print the 90-column schema and exit</code></pre>
+  scrape    Scrape a URL list into csv/json/jsonl/sqlite
+  crawl     Discover URLs by links + sitemaps, then scrape them
+  discover  Crawl only — print the discovered URL list
+  probe     Inspect robots.txt, sitemaps and HTTP behaviour
+  audit     Validate an output file
+  schema    Print the 90-column schema
+  init      Write a commented scraper.toml
+  config    Print the effective configuration
+
+common: -f FILE  -o PATH  --format FMT  -w N  -t SECS  --delay S
+        --retries N  --proxy-file F  --resume  --overwrite  -q
+crawl:  -d DEPTH  -n MAXURLS  --exact-hosts  --no-sitemaps  -s STRATEGY
+        --include REGEX  --exclude REGEX</code></pre>
 </details>
 
 <h2>FAQ</h2>
@@ -201,7 +204,7 @@ python cli.py -f sites.csv -o out.csv -w 30 --json --resume</code></pre>
 <p>Use a parallel bulk scraper. Every-Site Scraping reads a TXT or CSV list and writes one row per site with 90 columns covering SEO fields (title, meta description, canonical, robots meta, language, favicon), Open Graph and Twitter cards, headings, word count, links, contacts and tech stack — hundreds of sites per minute with 10–40+ workers.</p>
 
 <h3>How do I scrape a list of websites into a CSV file with Python?</h3>
-<p>Install the requirements, then run <code>python cli.py -f sites.csv -o out.csv -w 30 --json</code>. The URL column in your input CSV is auto-detected by header name or by content, so CRM and lead-export files work without preprocessing.</p>
+<p>Install the requirements, then run <code>python -m everysite scrape -f sites.csv -o out.csv -w 30</code> — or <code>python -m everysite crawl https://example.com -d 2 -n 500 -o site.csv</code> to discover and scrape a whole site. The URL column in your input CSV is auto-detected by header name or by content, so CRM and lead-export files work without preprocessing.</p>
 
 <h3>What happens if the scraper crashes in the middle of a run?</h3>
 <p>Nothing already written is lost. Each completed row is flushed and fsynced immediately, so a crash only loses sites in flight. Re-run with <code>--resume</code> to skip completed URLs and continue with the rest.</p>
@@ -213,7 +216,7 @@ python cli.py -f sites.csv -o out.csv -w 30 --json --resume</code></pre>
 <p>No. It is MIT licensed open source and runs locally with <code>requests</code>, <code>BeautifulSoup</code> and <code>lxml</code>. No key, no hosted service, no per-site cost. Respect each site's <code>robots.txt</code> and terms of service.</p>
 
 <h2>Validation</h2>
-<p>68 unit tests plus five live validation rounds across 380+ real websites — small businesses, government portals, universities, clinics and global sites. The largest round scraped 213 sites with 30 workers in 84.1 seconds (2.53 sites/s) on a 2-core machine, and survived a mid-run <code>SIGKILL</code> with zero row loss.</p>
+<p>163 unit tests across Python 3.8–3.13 plus macOS and Windows. Measured on a 2-core machine: 126 distinct live sites scraped at 96.8% success in 84.7 seconds (89 sites/min), and a real mid-run <code>SIGKILL</code> at 221/400 rows followed by <code>--resume</code> completed exactly the 179 remaining rows — zero duplicates, zero loss.</p>
 
 <footer>
   <p><strong>Every-Site Scraping</strong> — built for bulk, survives crashes, never loses a row.</p>

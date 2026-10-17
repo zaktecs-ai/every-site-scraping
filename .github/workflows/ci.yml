@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: tests (py${{ matrix.python }} / ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+        include:
+          # one non-Linux runner to catch path/platform assumptions
+          - os: macos-latest
+            python: "3.12"
+          - os: windows-latest
+            python: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install psutil
+
+      - name: Show versions
+        run: |
+          python --version
+          python -c "import requests, bs4, lxml; print('requests', requests.__version__); print('bs4', bs4.__version__)"
+
+      - name: Byte-compile every module
+        run: python -m compileall -q cli.py runner.py checkpoint.py runlog.py multiscrape.py scraper.py data_quality.py crawler.py sinks.py config.py netlayer.py
+
+      - name: Run the test suite
+        run: python -m unittest discover -v
+
+      - name: CLI smoke test
+        run: |
+          python cli.py --version
+          python cli.py schema
+          python cli.py scrape https://example.com -o smoke.csv --quiet
+          python cli.py audit smoke.csv
+
+  lint:
+    name: lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check .
+
+  package:
+    name: build & install the wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: |
+          pip install build
+          python -m build
+      - name: Install the built wheel in a clean venv
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install dist/*.whl
+          /tmp/venv/bin/every-site-scraping --version
+          /tmp/venv/bin/every-site-scraping schema | tail -1
+          /tmp/venv/bin/python -c "import crawler, sinks, config, netlayer; print('imports ok')"

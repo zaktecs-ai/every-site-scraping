@@ -1,0 +1,38 @@
+name: Feature request
+description: Suggest a capability the tool is missing.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project favours a small dependency footprint: pure-Python, no browser
+        engine, no framework. Proposals that fit that constraint are most likely
+        to land.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the task, not the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like the tool to do?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Including existing flags or tools that nearly work.
+    validations:
+      required: false
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints
+      options:
+        - label: This can be implemented without adding a new runtime dependency
+        - label: This does not require a headless browser

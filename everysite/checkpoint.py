@@ -32,7 +32,7 @@ import time
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, TextIO
 
-from scraper import SCHEMA
+from .scraper import SCHEMA
 
 # ---------------------------------------------------------------------------
 # Crash-safe incremental CSV writer
@@ -229,7 +229,7 @@ _JSON_LIST_COLUMNS = None  # lazily imported from scraper to avoid a cycle
 def _json_list_columns() -> set:
     global _JSON_LIST_COLUMNS
     if _JSON_LIST_COLUMNS is None:
-        from scraper import LIST_COLUMNS  # local import: avoid circular import
+        from .scraper import LIST_COLUMNS  # local import: avoid circular import
         _JSON_LIST_COLUMNS = set(LIST_COLUMNS)
     return _JSON_LIST_COLUMNS
 
@@ -244,7 +244,7 @@ def row_to_json_site(row: Dict[str, str]) -> Dict:
       * ms/bytes cols -> int
       * everything else -> str
     """
-    from scraper import COUNT_LIST_PAIRS, LIST_DELIM
+    from .scraper import COUNT_LIST_PAIRS, LIST_DELIM
     lists = _json_list_columns()
     site: Dict = {}
     for col, val in row.items():

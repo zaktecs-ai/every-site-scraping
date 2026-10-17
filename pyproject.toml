@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "every-site-scraping"
+version = "3.0.0"
+description = "Parallel Python scraper + crawler: any list of URLs into a structured 90-column dataset (CSV/JSON/JSONL/SQLite) — crash-safe resume, robots-aware, flat memory."
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+authors = [{ name = "Every-Site Scraping contributors" }]
+keywords = [
+    "web-scraping", "scraper", "crawler", "bulk-scraping", "parallel",
+    "seo", "metadata", "open-graph", "contact-scraper", "lead-generation",
+    "b2b", "csv", "sqlite", "jsonl", "crash-safe", "beautifulsoup", "python",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Text Processing :: Markup :: HTML",
+]
+dependencies = [
+    "requests>=2.28",
+    "beautifulsoup4>=4.11",
+    "lxml>=4.9",
+]
+
+[project.optional-dependencies]
+# richer CPU/RAM stats in the run summary
+monitor = ["psutil>=5.9"]
+dev = ["coverage>=7.0", "ruff>=0.4"]
+
+[project.urls]
+Homepage = "https://zaktecs-ai.github.io/every-site-scraping/"
+Repository = "https://github.com/zaktecs-ai/every-site-scraping"
+Issues = "https://github.com/zaktecs-ai/every-site-scraping/issues"
+Changelog = "https://github.com/zaktecs-ai/every-site-scraping/releases"
+
+[project.scripts]
+every-site-scraping = "everysite:main"
+esscrape = "everysite:main"
+
+[tool.setuptools]
+packages = ["everysite"]
+
+[tool.setuptools.package-data]
+everysite = ["py.typed"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+ignore = [
+    "E501",   # long lines are tolerated in a data-heavy codebase
+    "B008",   # function calls in argument defaults (argparse patterns)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"test_*.py" = ["SIM115", "B011", "E402"]

@@ -1,6 +1,46 @@
+# Byte-compiled / caches
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Build artefacts
+build/
+dist/
+*.egg-info/
+*.egg
+wheels/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Scrape output (never commit data)
 output.csv
+out.csv
 *.summary.json
 *.log.jsonl
 *.checkpoint.json
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+
+# Local config and secrets — a proxy list or a credentials file must never be
+# committed. scraper.toml itself is safe to commit (no secrets by design).
+proxies.txt
+proxy*.txt
+.env
+.env.*
+
+# Editor / OS noise
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

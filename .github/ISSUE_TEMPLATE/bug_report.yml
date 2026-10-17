@@ -1,0 +1,54 @@
+name: Bug report
+description: Something behaved incorrectly — a wrong row, a crash, a hang.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. The single most useful thing you can include is the
+        exact command and its output — please redact any private URLs or data.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `python cli.py --version`
+      placeholder: "3.0.0"
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python / OS
+      description: Output of `python --version` and your OS
+      placeholder: "Python 3.12.4 on Ubuntu 24.04"
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command you ran
+      render: shell
+      placeholder: "python cli.py crawl https://example.com -d 2 -n 100 -o out.csv"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened
+      description: Paste the output. If the run hung, say roughly where it stopped.
+    validations:
+      required: true
+  - type: textarea
+    id: data
+    attributes:
+      label: Relevant output columns (optional)
+      description: If a site produced a wrong row, the affected cells are more useful than a description.
+    validations:
+      required: false

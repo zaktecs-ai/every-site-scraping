@@ -1,8 +1,29 @@
 # Every-Site Scraping
 
-> Parallel Python web scraper that turns any list of URLs into one 90-column CSV row per site — SEO metadata, Open Graph, contact details, social profiles, JSON-LD, and tech stack. Crash-safe resume, typed JSON output, flat memory at any site count.
+> Parallel Python web scraper **and crawler** that turns any list of URLs — or a
+> single seed site — into one 90-column row per page: SEO metadata, Open Graph,
+> contact details, social profiles, JSON-LD and tech stack. Outputs CSV, typed
+> JSON, append-only JSONL or queryable SQLite. Crash-safe resume, robots-aware,
+> flat memory at any site count.
 
-Every-Site Scraping is a Python 3.8+ command-line tool for **bulk website data extraction**. It accepts an arbitrary list of URLs (arguments, a `.txt` file, or a CSV/lead-export with an auto-detected website column) and scrapes them in parallel with 10–40+ workers. Each site becomes exactly one row across a fixed 90-column schema.
+Every-Site Scraping is a Python 3.8+ command-line tool and library for **bulk
+website data extraction**. It accepts an arbitrary list of URLs (arguments, a
+`.txt` file, stdin, or a CSV/lead-export with an auto-detected website column) or
+a seed site to crawl, then scrapes everything in parallel with 10–40+ workers.
+Each page becomes exactly one row across a fixed 90-column schema.
+
+## Commands
+
+- `scrape` — scrape an explicit URL list into a dataset
+- `crawl` — discover URLs by following links + sitemaps, then scrape them
+- `discover` — crawl only; print the discovered URL list
+- `probe` — inspect a site's robots.txt, sitemaps and HTTP behaviour
+- `audit` — validate an output file (csv/json/jsonl/sqlite)
+- `schema` — print the 90-column schema
+- `init` — write a commented `scraper.toml`
+- `config` — print the effective merged configuration
+
+Library API: `from everysite import scrape, crawl, discover, SCHEMA`
 
 ## What it extracts
 
@@ -18,10 +39,27 @@ Every-Site Scraping is a Python 3.8+ command-line tool for **bulk website data e
 
 ## Key capabilities
 
-- **Parallel engine** — N workers pull from one queue; per-worker counts appear in the run summary (verified, not claimed)
-- **Crash-safe resume** — every completed row is flushed and fsynced immediately; `--resume` continues exactly where a killed run stopped
-- **Fixed 90-column schema** — `csv.DictWriter(extrasaction="raise")` makes a malformed row raise instead of shifting columns
-- **Typed JSON output** — the same data as real arrays, integers, and booleans
+- **Crawling** — link following with depth control, `/sitemap.xml` and
+  robots-declared sitemap expansion (including nested indexes), registrable-domain
+  or exact-host scope, include/exclude regexes, and deterministic URL order
+- **Honest robots.txt** — honoured by default including `Crawl-delay`; disallowed
+  URLs are counted in the summary rather than silently dropped
+- **URL canonicalisation** — strips tracking parameters, default ports, fragments
+  and duplicate slashes so the same page is scraped once
+- **Politeness** — a per-host minimum request interval (`--delay`) plus the site's
+  own `Crawl-delay`, while different hosts run in parallel
+- **Proxy rotation** — a pool from a file, rotated round-robin with dead-proxy
+  quarantine
+- **Retries with backoff** — on 202/429/5xx and timeouts, jittered
+- **Four output formats** — CSV, typed JSON, append-only JSONL, SQLite (indexed on url)
+- **Parallel engine** — N workers pull from one queue; per-worker counts appear in
+  the run summary (verified, not claimed)
+- **Crash-safe resume** — every completed row is flushed and fsynced immediately;
+  `--resume` continues exactly where a killed run stopped, in any format
+- **Honest failure reporting** — HTTP 200 with an empty body is reported as
+  `empty_response`, never as success
+- **Fixed 90-column schema** — `csv.DictWriter(extrasaction="raise")` makes a
+  malformed row raise instead of shifting columns
 - **Flat memory** — RAM scales with `--workers`, not with the number of sites
 
 ## Install
@@ -33,23 +71,39 @@ pip install -r requirements.txt
 ```
 
 Dependencies: `requests`, `beautifulsoup4`, `lxml`. Python 3.8+.
+Optionally `pip install .` to get the `every-site-scraping` / `esscrape` commands.
 
 ## Quick start
 
 ```bash
-# A few sites (10 workers by default)
-python cli.py https://www.python.org https://www.postgresql.org
+# scrape a few sites
+python -m everysite scrape https://www.python.org https://www.postgresql.org
 
-# 500 sites from a file — 30 workers, CSV + JSON output
-python cli.py -f sites.csv -o out.csv -w 30 --json
+# 500 sites from a file — 30 workers
+python -m everysite scrape -f sites.csv -o out.csv -w 30 --json
 
-# Continue an interrupted run
-python cli.py -f sites.csv -o out.csv -w 30 --json --resume
+# crawl a site then scrape every page found
+python -m everysite crawl https://example.com -d 2 -n 500 -o site.csv
+
+# crawl straight into SQLite
+python -m everysite crawl https://example.com -d 2 -o site.sqlite
+
+# continue an interrupted run (works for csv/json/jsonl/sqlite)
+python -m everysite scrape -f sites.csv -o out.csv -w 30 --resume
 ```
 
 ## Validation
 
-Covered by 68 unit tests and five live validation rounds across 380+ real websites (small businesses, government portals, universities, clinics, software houses, and global sites). The largest round scraped 213 sites with 30 workers in 84.1 seconds (2.53 sites/s) on a 2-core machine.
+163 unit tests (Python 3.8–3.13, plus macOS and Windows in CI). Measured on a
+2-core machine: 126 distinct live sites scraped at 96.8% success in 84.7 s
+(89 sites/min); a real `SIGKILL` at 221/400 rows followed by `--resume` completed
+the exact 179 remaining with zero duplicates and zero loss.
+
+## Responsible use
+
+You are responsible for what you fetch. Respect each site's terms of service and
+applicable law, keep request rates reasonable, and note that `robots.txt` is
+honoured by default.
 
 ## License
 
@@ -59,3 +113,5 @@ MIT.
 
 - Source code: https://github.com/zaktecs-ai/every-site-scraping
 - Documentation: https://zaktecs-ai.github.io/every-site-scraping/
+- Contributing: https://github.com/zaktecs-ai/every-site-scraping/blob/main/CONTRIBUTING.md
+- Security: https://github.com/zaktecs-ai/every-site-scraping/blob/main/SECURITY.md

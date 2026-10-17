@@ -1,0 +1,15 @@
+https://quotes.toscrape.com/
+https://quotes.toscrape.com/login
+https://quotes.toscrape.com/author/Albert-Einstein
+https://quotes.toscrape.com/tag/change/page/1
+https://quotes.toscrape.com/tag/deep-thoughts/page/1
+https://quotes.toscrape.com/tag/thinking/page/1
+https://quotes.toscrape.com/tag/world/page/1
+https://quotes.toscrape.com/author/J-K-Rowling
+https://quotes.toscrape.com/tag/abilities/page/1
+https://quotes.toscrape.com/tag/choices/page/1
+https://quotes.toscrape.com/tag/inspirational/page/1
+https://quotes.toscrape.com/tag/life/page/1
+https://quotes.toscrape.com/tag/live/page/1
+https://quotes.toscrape.com/tag/miracle/page/1
+https://quotes.toscrape.com/tag/miracles/page/1

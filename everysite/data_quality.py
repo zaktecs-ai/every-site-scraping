@@ -20,9 +20,8 @@ import csv
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from scraper import SCHEMA, LIST_COLUMNS, LIST_DELIM, COUNT_LIST_PAIRS  # noqa: E402
+from .scraper import SCHEMA, LIST_COLUMNS, LIST_DELIM, COUNT_LIST_PAIRS  # noqa: E402
 
 # Columns that hold sorted, deduped newline-joined lists (single source of
 # truth lives in scraper.py). The auditor checks they are sorted + deduped.
