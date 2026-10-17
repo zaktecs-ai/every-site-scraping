@@ -44,15 +44,14 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
-
-from .netlayer import Fetcher, ProxyPool
-from .runlog import ResourceMonitor, RunLogger, SummaryBuilder
-from .scraper import SCHEMA
-from .multiscrape import row_from_fetch
+from typing import Any, Callable, Dict, List, Optional
 
 from . import checkpoint as cp
 from . import sinks as sink_mod
+from .multiscrape import row_from_fetch
+from .netlayer import Fetcher, ProxyPool
+from .runlog import ResourceMonitor, RunLogger, SummaryBuilder
+from .scraper import SCHEMA
 
 _DONE = object()          # poison pill: one per worker ends the pool
 _CP_EVERY = 25            # checkpoint cadence (rows)

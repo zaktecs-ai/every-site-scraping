@@ -29,9 +29,9 @@ import sqlite3
 import tempfile
 import threading
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, Optional, Sequence
 
-from .checkpoint import row_to_json_site, SafeCSVWriter, SafeJSONWriter
+from .checkpoint import SafeCSVWriter, SafeJSONWriter, row_to_json_site
 from .netlayer import normalize_url
 
 __all__ = [

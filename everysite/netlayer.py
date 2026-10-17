@@ -25,7 +25,7 @@ import random
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from urllib.parse import urljoin, urlsplit
 
 import requests

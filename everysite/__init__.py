@@ -25,9 +25,9 @@ __all__ = [
     "canonicalize", "fetch_robots", "SUPPORTED_FORMATS", "__version__",
 ]
 
-from .scraper import SCHEMA, extract_site  # noqa: E402
+from .crawler import canonicalize, discover, fetch_robots  # noqa: E402
 from .runner import run as scrape  # noqa: E402
-from .crawler import discover, canonicalize, fetch_robots  # noqa: E402
+from .scraper import SCHEMA, extract_site  # noqa: E402
 from .sinks import SUPPORTED_FORMATS  # noqa: E402
 
 

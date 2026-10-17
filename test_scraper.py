@@ -24,9 +24,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from everysite.scraper import SCHEMA, empty_row, extract_site  # noqa: E402
 from everysite.multiscrape import write_csv  # noqa: E402
-
+from everysite.scraper import SCHEMA, empty_row, extract_site  # noqa: E402
 
 SAMPLE_HTML = """
 <!DOCTYPE html>
@@ -160,23 +159,26 @@ class TestRegressionFixes(unittest.TestCase):
     def test_overflow_hidden_is_not_treated_as_hidden(self):
         # "overflow-hidden" is a CSS overflow utility, NOT a visibility class.
         # It must not hide content (this was dropping Apple/IBM headings).
-        from everysite.scraper import _is_hidden
         from bs4 import BeautifulSoup
+
+        from everysite.scraper import _is_hidden
         tag = BeautifulSoup('<h1 class="overflow-hidden">Visible</h1>', "lxml").h1
         self.assertFalse(_is_hidden(tag))
 
     def test_tailwind_arbitrary_selector_is_not_hidden(self):
         # "[&_br]:hidden" hides a descendant <br>, NOT the element itself.
-        from everysite.scraper import _is_hidden
         from bs4 import BeautifulSoup
+
+        from everysite.scraper import _is_hidden
         tag = BeautifulSoup(
             '<h1 class="mb-2 [&_br]:hidden text-6">Visible</h1>', "lxml"
         ).h1
         self.assertFalse(_is_hidden(tag))
 
     def test_real_visibility_classes_still_hidden(self):
-        from everysite.scraper import _is_hidden
         from bs4 import BeautifulSoup
+
+        from everysite.scraper import _is_hidden
         for cls in ("hidden", "invisible"):
             tag = BeautifulSoup(f'<div class="{cls}">x</div>', "lxml").div
             self.assertTrue(_is_hidden(tag), cls)
@@ -185,8 +187,9 @@ class TestRegressionFixes(unittest.TestCase):
         # sr-only / visually-hidden hide content VISUALLY but keep it for
         # crawlers; a completeness-focused extractor must keep them (this was
         # data loss on sitepoint.com's sr-only <h1>).
-        from everysite.scraper import _is_hidden
         from bs4 import BeautifulSoup
+
+        from everysite.scraper import _is_hidden
         for cls in ("sr-only", "visually-hidden", "screen-reader-text"):
             tag = BeautifulSoup(f'<h1 class="{cls}">Real</h1>', "lxml").h1
             self.assertFalse(_is_hidden(tag), cls)

@@ -26,8 +26,8 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
-from typing import Iterable, List, Optional, Tuple
-from urllib.parse import urljoin, urldefrag, urlparse
+from typing import List, Optional, Tuple
+from urllib.parse import urldefrag, urljoin, urlparse
 
 from bs4 import BeautifulSoup, Tag
 

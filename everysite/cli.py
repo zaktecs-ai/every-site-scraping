@@ -23,7 +23,6 @@ import json
 import sys
 from pathlib import Path
 
-
 from . import checkpoint as cp  # noqa: E402
 from . import config as config_mod  # noqa: E402
 from . import crawler as crawler_mod  # noqa: E402

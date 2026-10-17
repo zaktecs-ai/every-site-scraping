@@ -30,7 +30,7 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Set, TextIO
+from typing import Dict, List, Optional, Set, TextIO
 
 from .scraper import SCHEMA
 
@@ -244,7 +244,7 @@ def row_to_json_site(row: Dict[str, str]) -> Dict:
       * ms/bytes cols -> int
       * everything else -> str
     """
-    from .scraper import COUNT_LIST_PAIRS, LIST_DELIM
+    from .scraper import LIST_DELIM
     lists = _json_list_columns()
     site: Dict = {}
     for col, val in row.items():
@@ -357,7 +357,6 @@ def finalize_json_file(path: str) -> int:
     lines = [ln for ln in raw.split("\n") if ln.strip()]
     meta: Dict = {}
     sites: List[Dict] = []
-    started = False
     for i, ln in enumerate(lines):
         s = ln.strip()
         if i == 0 and s.startswith('{"meta":'):
@@ -368,7 +367,6 @@ def finalize_json_file(path: str) -> int:
                     meta = json.loads(m.group(1))
                 except ValueError:
                     meta = {}
-                started = True
                 continue
         try:
             sites.append(json.loads(s))

@@ -20,7 +20,7 @@ jobs:
         os: [ubuntu-latest]
         python: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
         include:
-          # one non-Linux runner to catch path/platform assumptions
+          # one non-Linux runner each, to catch path/platform assumptions
           - os: macos-latest
             python: "3.12"
           - os: windows-latest
@@ -45,17 +45,30 @@ jobs:
           python -c "import requests, bs4, lxml; print('requests', requests.__version__); print('bs4', bs4.__version__)"
 
       - name: Byte-compile every module
-        run: python -m compileall -q cli.py runner.py checkpoint.py runlog.py multiscrape.py scraper.py data_quality.py crawler.py sinks.py config.py netlayer.py
+        run: python -m compileall -q everysite
 
       - name: Run the test suite
         run: python -m unittest discover -v
 
       - name: CLI smoke test
         run: |
-          python cli.py --version
-          python cli.py schema
-          python cli.py scrape https://example.com -o smoke.csv --quiet
-          python cli.py audit smoke.csv
+          python -m everysite --version
+          python -m everysite schema
+          python -m everysite probe https://example.com
+          python -m everysite scrape https://example.com https://www.iana.org -o smoke.csv --quiet
+          python -m everysite audit smoke.csv
+          python -m everysite scrape https://example.com -o smoke.jsonl --quiet
+          python -m everysite audit smoke.jsonl
+          python -m everysite scrape https://example.com -o smoke.sqlite --quiet
+          python -m everysite audit smoke.sqlite
+
+      - name: Library API smoke test
+        run: |
+          python -c "import everysite as e; r = e.scrape(['https://example.com'], output='lib.csv', quiet=True); assert r['ok'] == 1, r; print('library API ok:', len(e.SCHEMA), 'columns')"
+
+      - name: Crawler smoke test (no network beyond example.com)
+        run: |
+          python -m everysite discover https://example.com -d 1 -n 5 -q
 
   lint:
     name: lint (ruff)
@@ -86,4 +99,19 @@ jobs:
           /tmp/venv/bin/pip install dist/*.whl
           /tmp/venv/bin/every-site-scraping --version
           /tmp/venv/bin/every-site-scraping schema | tail -1
-          /tmp/venv/bin/python -c "import crawler, sinks, config, netlayer; print('imports ok')"
+          /tmp/venv/bin/esscrape --version
+          /tmp/venv/bin/python -c "import everysite; import everysite.crawler, everysite.sinks, everysite.config, everysite.netlayer; print('package imports ok')"
+      - name: The installed package must not shadow other top-level modules
+        run: |
+          /tmp/venv/bin/python - <<'PY'
+          import everysite, os
+          pkg_dir = os.path.dirname(everysite.__file__)
+          top_level = sorted(
+              f for f in os.listdir(os.path.dirname(pkg_dir))
+              if f.endswith(".py") and not f.startswith("_")
+          )
+          print("top-level modules:", top_level)
+          for shadow in ("cli.py", "config.py", "runner.py", "scraper.py"):
+              assert shadow not in top_level, f"{shadow} would shadow other packages"
+          print("no top-level shadowing")
+          PY

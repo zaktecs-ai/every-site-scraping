@@ -34,8 +34,8 @@ import re
 import time
 import urllib.robotparser as robotparser
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
-from urllib.parse import urljoin, urlsplit, urlunsplit, parse_qsl, urlencode
+from typing import Dict, List, Optional, Sequence, Set, Tuple
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 import requests
 
@@ -547,7 +547,6 @@ def discover(
 def fetch_robots(url: str, *, user_agent: str = DEFAULT_USER_AGENT,
                  timeout: int = 15) -> Dict:
     """Return the parsed robots.txt facts for one site (never raises)."""
-    rp = RobotsPolicy(user_agent=user_agent, timeout=timeout)
     host_root = f"{urlsplit(canonicalize(url)).scheme}://{urlsplit(canonicalize(url)).netloc}"
     text = ""
     status = None

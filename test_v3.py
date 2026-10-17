@@ -18,7 +18,6 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-import sys
 import tempfile
 import threading
 import unittest
@@ -30,7 +29,6 @@ from everysite import crawler as crawler_mod
 from everysite import netlayer as netlayer_mod
 from everysite import sinks as sink_mod
 from everysite.scraper import SCHEMA
-
 
 # --------------------------------------------------------------------------
 # crawler: URL canonicalisation

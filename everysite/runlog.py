@@ -270,7 +270,6 @@ class SummaryBuilder:
         without holding every row in memory. Keys: n_rows, n_ok,
         status_hist, err_hist, resp_times, total_bytes, domain_hist.
         """
-        started = self.started_at
         facts = self.facts
         rows_n = int(agg.get("n_rows", 0))
         n_ok = int(agg.get("n_ok", 0))
