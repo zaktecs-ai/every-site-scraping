@@ -380,9 +380,9 @@ def cmd_probe(args) -> int:
             for r in info["disallow_rules"][:8]:
                 print(f"             {r}")
         if args.deep:
-            import netlayer
-            f = netlayer.Fetcher(timeout=opts["timeout"], user_agent=ua)
-            r = f.fetch(u)
+            from . import netlayer
+            net_fetch = netlayer.Fetcher(timeout=opts["timeout"], user_agent=ua)
+            r = net_fetch.fetch(u)
             print(f"fetch      : {r['fetch_status']} (HTTP {r['http_status']}, "
                   f"{r['timing']}ms, {len(r.get('html') or '')} bytes, "
                   f"{r['attempts']} attempt(s))")
